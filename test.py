@@ -67,7 +67,7 @@ def AddTask(title, description, category, priority, dueDate, isRecurring, user_i
             title, description, category, priority, due_date, is_recurring, 
             last_completed_date, user_id, recurrence_pattern
         ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)''', 
-            (title, description, category, priority, dueDate, isRecurring, user_id, recurrence_pattern))
+        (title, description, category, priority, dueDate, isRecurring, user_id, recurrence_pattern))
         conn.commit()
         print("Task added successfully to database")
     except Exception as e:
@@ -482,86 +482,17 @@ class TimePlanApp(tk.Tk):
         task_frame = ttk.Frame(self.main_container)
         task_frame.configure(style="Dashboard.TFrame")
 
-        # Sidebar
-        sidebar = tk.Frame(task_frame, bg="#d39ffb", width=180)
-        sidebar.pack(side="left", fill="y")
-        sidebar.pack_propagate(False)  # Prevent sidebar from shrinking
-
-        # Logo and title
-        title_frame = tk.Frame(sidebar, bg="#d39ffb")
-        title_frame.pack(fill="x", pady=20)
-        tk.Label(title_frame, text="🅣", bg="#d39ffb", fg="white", 
-                font=("Arial", 24, "bold")).pack(side="left", padx=10)
-        tk.Label(title_frame, text="Time Plan", bg="#d39ffb", fg="white", 
-                font=("Arial", 16, "bold")).pack(side="left")
-
-        # Sidebar buttons with improved styling
-        buttons = [
-            ("📊 DASHBOARD", self.show_dashboard),
-            ("📝 TASK MANAGER", self.show_task_view),
-            ("👤 MY PROFILE", lambda: tkinter.messagebox.showinfo("Coming Soon", "Profile feature coming soon!")),
-            ("⚙️ SETTINGS", lambda: tkinter.messagebox.showinfo("Coming Soon", "Settings feature coming soon!"))
-        ]
-        
-        for text, command in buttons:
-            btn = tk.Button(sidebar, text=text, bg="#d39ffb", fg="white",
-                          relief="flat", anchor="w", padx=20, 
-                          font=("Arial", 11),
-                          command=command,
-                          cursor="hand2")
-            btn.pack(fill="x", pady=5)
-            
-            # Add hover effect
-            btn.bind("<Enter>", lambda e, b=btn: b.configure(bg="#c180f2"))
-            btn.bind("<Leave>", lambda e, b=btn: b.configure(bg="#d39ffb"))
-
         # Main Content Frame with padding
         main_frame = tk.Frame(task_frame, bg="white")
-        main_frame.pack(side="right", fill="both", expand=True, padx=20, pady=10)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
-        # Split main frame into left (calendar) and right (tasks) sections
-        left_frame = tk.Frame(main_frame, bg="white", width=300)
-        left_frame.pack(side="left", fill="y", padx=(0, 20))
-        left_frame.pack_propagate(False)  # Keep the width fixed
+        # Top Navigation Bar
+        top_nav = tk.Frame(main_frame, bg="white")
+        top_nav.pack(fill="x", pady=(0, 20))
 
-        right_frame = tk.Frame(main_frame, bg="white")
-        right_frame.pack(side="right", fill="both", expand=True)
-
-        # Add calendar to left frame
-        calendar_frame = ttk.LabelFrame(left_frame, text="Calendar", padding=10)
-        calendar_frame.pack(fill="x", pady=(0, 20))
-
-        self.calendar = Calendar(calendar_frame, 
-                               selectmode='day',
-                               date_pattern='yyyy-mm-dd',
-                               showweeknumbers=False,
-                               background="#d39ffb",
-                               selectbackground="#8a3ff6")
-        self.calendar.pack(fill="both", expand=True)
-        self.calendar.bind('<<CalendarSelected>>', self.on_date_selected)
-
-        # Add task preview below calendar
-        preview_frame = ttk.LabelFrame(left_frame, text="Tasks for selected date", padding=10)
-        preview_frame.pack(fill="both", expand=True)
-
-        # Add scrollbar for preview
-        preview_scroll = ttk.Scrollbar(preview_frame)
-        preview_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Create text widget for task preview
-        self.task_preview = tk.Text(preview_frame, height=8, wrap=tk.WORD,
-                                  yscrollcommand=preview_scroll.set)
-        self.task_preview.pack(fill="both", expand=True)
-        preview_scroll.config(command=self.task_preview.yview)
-        self.task_preview.config(state=tk.DISABLED)
-
-        # Date navigation frame
-        date_nav_frame = tk.Frame(right_frame, bg="white")
-        date_nav_frame.pack(fill="x", pady=(0, 20))
-
-        # Date navigation buttons
-        date_frame = tk.Frame(date_nav_frame, bg="white")
-        date_frame.pack(fill="x", pady=(0, 10))
+        # Date navigation on the left
+        date_frame = tk.Frame(top_nav, bg="white")
+        date_frame.pack(side="left")
 
         from datetime import datetime, timedelta
         today = datetime.now()
@@ -570,54 +501,36 @@ class TimePlanApp(tk.Tk):
         self.current_date = today
         self.date_buttons = {}
         
-        # Calculate the start of the current week (Sunday)
-        current_weekday = today.weekday()  # 0 is Monday, 6 is Sunday
-        days_from_sunday = (current_weekday + 1) % 7  # Convert to 0 is Sunday
-        sunday = today - timedelta(days=days_from_sunday)
-        
-        # Create buttons for each day of the current week
-        weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        for i in range(7):
-            current_date = sunday + timedelta(days=i)
-            weekday = weekdays[i]
-            
-            # Determine if this is today
-            is_today = current_date.date() == today.date()
-            
-            # Create the button text
-            if is_today:
-                button_text = "Today"
-            else:
-                button_text = weekday
-            
+        dates = [
+            (today - timedelta(days=1), "Yesterday"),
+            (today, "Today"),
+            (today + timedelta(days=1), "Tomorrow"),
+            (today + timedelta(days=2), "Day After")
+        ]
+
+        for date, text in dates:
             btn = tk.Button(
                 date_frame,
-                text=f"{button_text}\n{current_date.strftime('%d %b')}",
+                text=f"{text}\n{date.strftime('%B %d')}" if text in ["Yesterday", "Tomorrow", "Day After"] else "Today",
                 font=("Arial", 11),
-                bg="#d39ffb" if is_today else "white",
-                fg="white" if is_today else "black",
+                bg="white" if text != "Today" else "#d39ffb",
+                fg="black" if text != "Today" else "white",
                 relief="flat",
                 cursor="hand2",
-                width=12,  # Set fixed width for consistent sizing
-                command=lambda d=current_date: self.filter_tasks_by_date(d)
+                command=lambda d=date: self.filter_tasks_by_date(d)
             )
-            btn.pack(side="left", padx=5)
+            btn.pack(side="left", padx=10)
             
             # Store button reference
-            self.date_buttons[current_date.strftime("%Y-%m-%d")] = btn
+            self.date_buttons[date.strftime("%Y-%m-%d")] = btn
             
             # Add hover effect
             btn.bind("<Enter>", lambda e, b=btn: b.configure(bg="#e6d1fc" if b.cget("bg") == "white" else "#c180f2"))
-            btn.bind("<Leave>", lambda e, b=btn, d=current_date: b.configure(
-                bg="white" if d.strftime("%Y-%m-%d") != self.current_date.strftime("%Y-%m-%d") else "#d39ffb"
-            ))
+            btn.bind("<Leave>", lambda e, b=btn, d=date: b.configure(bg="white" if d.strftime("%Y-%m-%d") != self.current_date.strftime("%Y-%m-%d") else "#d39ffb"))
 
-        # Add Task Button below date navigation
-        add_btn_frame = tk.Frame(date_nav_frame, bg="white")
-        add_btn_frame.pack(fill="x")
-        
+        # Add Task Button at top right
         add_btn = tk.Button(
-            add_btn_frame,
+            top_nav,
             text=" Add New Task ➕",
             font=("Arial", 11, "bold"),
             fg="white",
@@ -628,7 +541,7 @@ class TimePlanApp(tk.Tk):
             padx=15,
             pady=5
         )
-        add_btn.pack(pady=(0, 10))
+        add_btn.pack(side="right")
 
         # Add hover effect
         def on_enter(e):
@@ -640,18 +553,18 @@ class TimePlanApp(tk.Tk):
         add_btn.bind("<Leave>", on_leave)
 
         # Create notebook for tabs
-        self.task_notebook = ttk.Notebook(right_frame)
+        self.task_notebook = ttk.Notebook(main_frame)
         self.task_notebook.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
         # Create tabs for each category
         self.ongoing_tab = ttk.Frame(self.task_notebook)
-        self.recurring_tab = ttk.Notebook(self.task_notebook)  # Changed to Notebook for sub-tabs
+        self.recurring_tab = ttk.Frame(self.task_notebook)
         self.missed_tab = ttk.Frame(self.task_notebook)
         self.done_tab = ttk.Frame(self.task_notebook)
 
         # Initialize all treeviews first
         self.ongoing_tree = None
-        self.recurring_trees = {}  # Dictionary to store recurring trees by pattern
+        self.recurring_tree = None
         self.missed_tree = None
         self.done_tree = None
 
@@ -661,21 +574,9 @@ class TimePlanApp(tk.Tk):
         self.task_notebook.add(self.missed_tab, text="Missed")
         self.task_notebook.add(self.done_tab, text="Done")
 
-        # Create recurring sub-tabs
-        self.daily_tab = ttk.Frame(self.recurring_tab)
-        self.weekly_tab = ttk.Frame(self.recurring_tab)
-        self.monthly_tab = ttk.Frame(self.recurring_tab)
-        self.annual_tab = ttk.Frame(self.recurring_tab)
-
-        # Add sub-tabs to recurring notebook
-        self.recurring_tab.add(self.daily_tab, text="Daily")
-        self.recurring_tab.add(self.weekly_tab, text="Weekly")
-        self.recurring_tab.add(self.monthly_tab, text="Monthly")
-        self.recurring_tab.add(self.annual_tab, text="Annually")
-
         # Create treeviews for each tab
         self.create_tab_treeview(self.ongoing_tab, "On-going")
-        self.create_recurring_treeviews()  # New method for recurring tabs
+        self.create_tab_treeview(self.recurring_tab, "Recurring")
         self.create_tab_treeview(self.missed_tab, "Missed")
         self.create_tab_treeview(self.done_tab, "Done")
 
@@ -685,64 +586,7 @@ class TimePlanApp(tk.Tk):
         # Bind tab change event
         self.task_notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
-        # Update calendar with tasks
-        self.update_calendar_tasks()
-
         return task_frame
-
-    def create_recurring_treeviews(self):
-        # Create treeviews for each recurring pattern
-        patterns = {
-            "Daily": self.daily_tab,
-            "Weekly": self.weekly_tab,
-            "Monthly": self.monthly_tab,
-            "Annually": self.annual_tab
-        }
-
-        for pattern, tab in patterns.items():
-            tree_frame = ttk.Frame(tab)
-            tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-            # Create scrollbar
-            tree_scroll = ttk.Scrollbar(tree_frame)
-            tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-            # Configure columns
-            columns = ("title", "due_date", "status")
-            headings = ("Task Name", "Starting Date", "Last Done")
-            widths = (300, 100, 100)
-
-            # Create treeview
-            tree = ttk.Treeview(tree_frame, columns=columns, show="headings",
-                              yscrollcommand=tree_scroll.set)
-            tree_scroll.config(command=tree.yview)
-
-            # Configure columns
-            for col, heading, width in zip(columns, headings, widths):
-                tree.heading(col, text=heading)
-                tree.column(col, width=width, minwidth=width)
-
-            tree.pack(fill=tk.BOTH, expand=True)
-
-            # Configure tags
-            tree.tag_configure('completed', background='#e8f5e9')
-            tree.tag_configure('pending', background='#fff3e0')
-
-            # Store tree reference
-            self.recurring_trees[pattern] = tree
-
-            # Add action buttons
-            action_frame = ttk.Frame(tab)
-            action_frame.pack(fill=tk.X, pady=(5, 0))
-
-            ttk.Button(action_frame, text="Mark Done Today",
-                      command=lambda p=pattern: self.mark_recurring_done_today(p)).pack(side=tk.LEFT, padx=(0, 5))
-            ttk.Button(action_frame, text="Delete Task",
-                      command=lambda p=pattern: self.delete_recurring_task(p),
-                      style="Delete.TButton").pack(side=tk.LEFT, padx=(0, 5))
-
-            # Bind selection event
-            tree.bind('<<TreeviewSelect>>', self.on_task_select)
 
     def filter_tasks_by_date(self, selected_date):
         # Update current date
@@ -757,14 +601,8 @@ class TimePlanApp(tk.Tk):
 
         try:
             # Clear all trees first
-            for category in ["ongoing", "missed", "done"]:
+            for category in ["ongoing", "recurring", "missed", "done"]:
                 tree = getattr(self, f"{category}_tree")
-                if tree and tree.winfo_exists():
-                    for item in tree.get_children():
-                        tree.delete(item)
-            
-            # Clear recurring trees
-            for tree in self.recurring_trees.values():
                 if tree and tree.winfo_exists():
                     for item in tree.get_children():
                         tree.delete(item)
@@ -782,7 +620,7 @@ class TimePlanApp(tk.Tk):
                     date('now', 'localtime') as today
                 FROM tasks 
                 WHERE user_id = ? 
-                AND (date(due_date) = date(?) OR category = 'Recurring')
+                AND date(due_date) = date(?)
                 ORDER BY 
                     CASE 
                         WHEN priority = 'Urgent' THEN 1 
@@ -810,66 +648,13 @@ class TimePlanApp(tk.Tk):
                     self.task_ids[item_id] = task_id
                 
                 elif category == "Recurring":
-                    # Skip if no pattern is set
-                    if not pattern:
-                        continue
-                        
-                    # Get the appropriate tree for this pattern
-                    tree = self.recurring_trees.get(pattern)
-                    if not tree:
-                        continue
-
-                    # Check if this recurring task is relevant for the selected date
-                    from datetime import datetime, timedelta
-                    task_date = datetime.strptime(date, '%Y-%m-%d').date()
-                    selected_datetime = selected_date.date() if isinstance(selected_date, datetime) else selected_date
-                    
-                    # Calculate if this task occurs on selected date
-                    temp_date = task_date
-                    is_on_date = False
-                    
-                    while temp_date <= selected_datetime:
-                        if temp_date == selected_datetime:
-                            is_on_date = True
-                            break
-                            
-                        # Move to next occurrence based on pattern
-                        if pattern == "Daily":
-                            temp_date += timedelta(days=1)
-                        elif pattern == "Weekly":
-                            temp_date += timedelta(days=7)
-                        elif pattern == "Monthly":
-                            # Handle month rollover
-                            year = temp_date.year + (temp_date.month // 12)
-                            month = (temp_date.month % 12) + 1
-                            try:
-                                temp_date = temp_date.replace(year=year, month=month)
-                            except ValueError:
-                                if month == 2 and temp_date.day > 28:
-                                    temp_date = temp_date.replace(year=year, month=month, day=28)
-                                else:
-                                    if month == 12:
-                                        next_month = datetime(year + 1, 1, 1)
-                                    else:
-                                        next_month = datetime(year, month + 1, 1)
-                                    last_day = (next_month - timedelta(days=1)).day
-                                    temp_date = temp_date.replace(year=year, month=month, day=last_day)
-                        elif pattern == "Annually":
-                            try:
-                                temp_date = temp_date.replace(year=temp_date.year + 1)
-                            except ValueError:
-                                temp_date = temp_date.replace(year=temp_date.year + 1, month=2, day=28)
-                    
-                    # Only add the task if it occurs on the selected date
-                    if is_on_date:
-                        status = "✅ Done Today" if last_completed == today else "⏳ Pending"
-                        values = (title, date, status)
-                        item_id = tree.insert("", tk.END, values=values)
-                        if last_completed == today:
-                            tree.item(item_id, tags=('completed',))
-                        else:
-                            tree.item(item_id, tags=('pending',))
-                        self.task_ids[item_id] = task_id
+                    tree = self.recurring_tree
+                    status = "✅ Done Today" if last_completed == today else "⏳ Pending"
+                    values = (title, date, pattern or "Not set", status)
+                    item_id = tree.insert("", tk.END, values=values)
+                    if last_completed == today:
+                        tree.item(item_id, tags=('completed',))
+                    self.task_ids[item_id] = task_id
                 
                 elif category == "Missed":
                     tree = self.missed_tree
@@ -905,7 +690,7 @@ class TimePlanApp(tk.Tk):
             widths = (250, 100, 100, 100)
         elif category == "Recurring":
             columns = ("title", "due_date", "pattern", "status")
-            headings = ("Task Name", "Starting Date", "Pattern", "Last Done")
+            headings = ("Task Name", "Due Date", "Pattern", "Last Done")
             widths = (250, 100, 100, 100)
         else:  # Missed and Done
             columns = ("title", "due_date", "status")
@@ -935,7 +720,7 @@ class TimePlanApp(tk.Tk):
         if category == "On-going":
             self.ongoing_tree = tree
         elif category == "Recurring":
-            self.recurring_trees[pattern] = tree
+            self.recurring_tree = tree
         elif category == "Missed":
             self.missed_tree = tree
         elif category == "Done":
@@ -964,12 +749,8 @@ class TimePlanApp(tk.Tk):
         if hasattr(self, 'current_date'):
             self.filter_tasks_by_date(self.current_date)
 
-    def mark_recurring_done_today(self, pattern=None):
-        if pattern:
-            current_tree = self.recurring_trees[pattern]
-        else:
-            return
-            
+    def mark_recurring_done_today(self):
+        current_tree = self.recurring_tree
         selected_items = current_tree.selection()
         if not selected_items:
             return
@@ -980,8 +761,7 @@ class TimePlanApp(tk.Tk):
         if task_id:
             try:
                 MarkRecurringTaskComplete(task_id)
-                self.filter_tasks_by_date(self.current_date)
-                self.update_calendar_tasks()
+                self.filter_tasks_by_date(datetime.now())
                 tkinter.messagebox.showinfo("Success", "Task marked as done for today!")
             except Exception as e:
                 tkinter.messagebox.showerror("Error", f"Failed to mark task as done: {str(e)}")
@@ -1008,7 +788,7 @@ class TimePlanApp(tk.Tk):
         if task_id:
             try:
                 UpdateTaskStatus(task_id, "Done")
-                self.filter_tasks_by_date(self.current_date)
+                self.filter_tasks_by_date(datetime.now())
                 tkinter.messagebox.showinfo("Success", "Task marked as done!")
             except Exception as e:
                 tkinter.messagebox.showerror("Error", f"Failed to mark task as done: {str(e)}")
@@ -1020,7 +800,7 @@ class TimePlanApp(tk.Tk):
         if current_tab == str(self.ongoing_tab):
             current_tree = self.ongoing_tree
         elif current_tab == str(self.recurring_tab):
-            current_tree = self.recurring_trees[self.recurring_tab.select()]
+            current_tree = self.recurring_tree
         elif current_tab == str(self.missed_tab):
             current_tree = self.missed_tree
         elif current_tab == str(self.done_tab):
@@ -1042,33 +822,7 @@ class TimePlanApp(tk.Tk):
                                                   icon='warning'):
             try:
                 DeleteTask(task_id, self.user_id)
-                self.filter_tasks_by_date(self.current_date)
-                self.update_calendar_tasks()
-                tkinter.messagebox.showinfo("Success", "Task deleted successfully!")
-            except Exception as e:
-                tkinter.messagebox.showerror("Error", f"Failed to delete task: {str(e)}")
-
-    def delete_recurring_task(self, pattern=None):
-        if pattern:
-            current_tree = self.recurring_trees[pattern]
-        else:
-            return
-            
-        selected_items = current_tree.selection()
-        if not selected_items:
-            return
-        
-        item_id = selected_items[0]
-        task_id = self.task_ids.get(item_id)
-        task_title = current_tree.item(item_id)['values'][0]
-        
-        if task_id and tkinter.messagebox.askyesno("Delete Task", 
-                                                  f"Are you sure you want to delete the recurring task:\n\n{task_title}?",
-                                                  icon='warning'):
-            try:
-                DeleteTask(task_id, self.user_id)
-                self.filter_tasks_by_date(self.current_date)
-                self.update_calendar_tasks()
+                self.filter_tasks_by_date(datetime.now())
                 tkinter.messagebox.showinfo("Success", "Task deleted successfully!")
             except Exception as e:
                 tkinter.messagebox.showerror("Error", f"Failed to delete task: {str(e)}")
@@ -1106,12 +860,12 @@ class TimePlanApp(tk.Tk):
         ''', (self.user_id,))
         
         stats = cursor.fetchone()
-        total = stats[0] if stats and stats[0] else 0
+        total = stats[0] if stats[0] else 0
         
         # Calculate percentages
-        ongoing_percent = round((stats[1] / total * 100) if stats[1] and total else 0)
-        done_percent = round((stats[2] / total * 100) if stats[2] and total else 0)
-        missed_percent = round((stats[3] / total * 100) if stats[3] and total else 0)
+        ongoing_percent = round((stats[1] / total * 100) if stats[1] else 0)
+        done_percent = round((stats[2] / total * 100) if stats[2] else 0)
+        missed_percent = round((stats[3] / total * 100) if stats[3] else 0)
         
         # Display progress circles
         self.progress_circle(self.progress_frame, "ON-GOING", ongoing_percent)
@@ -1294,12 +1048,11 @@ class TimePlanApp(tk.Tk):
                 else:
                     # For non-recurring tasks
                     if task_date >= current_date:
-                        if category == "Done":
-                            self.calendar.calevent_create(task_date, f"✓ {title}", "completed")
-                        elif category == "Missed":
-                            self.calendar.calevent_create(task_date, f"❌ {title}", "missed")
-                        else:  # On-going tasks
-                            self.calendar.calevent_create(task_date, f"�� {title}", "task")
+                        self.calendar.calevent_create(
+                            task_date,
+                            title,
+                            "task"
+                        )
             except (ValueError, TypeError) as e:
                 print(f"Error processing task date: {e}")
                 continue
@@ -1308,8 +1061,6 @@ class TimePlanApp(tk.Tk):
         self.calendar.tag_config("task", background="lightblue")
         self.calendar.tag_config("recurring", background="lightgreen")
         self.calendar.tag_config("recurring_completed", background="darkseagreen")
-        self.calendar.tag_config("completed", background="#e8f5e9")  # Light green
-        self.calendar.tag_config("missed", background="#ffebee")  # Light red
 
     def on_date_selected(self, event):
         selected_date = self.calendar.get_date()
@@ -1429,7 +1180,6 @@ class TimePlanApp(tk.Tk):
             self.dashboard_view = self.create_dashboard_view()
         self.dashboard_view.pack(fill=tk.BOTH, expand=True)
         self.update_dashboard()
-        self.update_calendar_tasks()  # Update calendar when showing dashboard
         self.title(f"TimePlan Dashboard - {self.username}")
 
     def show_task_view(self):
@@ -1440,63 +1190,7 @@ class TimePlanApp(tk.Tk):
         self.task_view.pack(fill=tk.BOTH, expand=True)
         # Load tasks for today by default
         self.filter_tasks_by_date(datetime.now())
-        self.update_calendar_tasks()  # Update calendar when showing task view
         self.title(f"TimePlan Task Manager - {self.username}")
-
-    def on_task_select(self, event=None):
-        # Get the current tab and tree
-        current_tab = self.task_notebook.select()
-        current_tree = None
-        
-        if current_tab == str(self.ongoing_tab):
-            current_tree = self.ongoing_tree
-        elif current_tab == str(self.recurring_tab):
-            current_tree = self.recurring_trees[self.recurring_tab.select()]
-        elif current_tab == str(self.missed_tab):
-            current_tree = self.missed_tree
-        elif current_tab == str(self.done_tab):
-            current_tree = self.done_tree
-            
-        if not current_tree:
-            return
-            
-        # Get selected items
-        selected_items = current_tree.selection()
-        if not selected_items:
-            return
-            
-        # Get the task ID
-        item_id = selected_items[0]
-        task_id = self.task_ids.get(item_id)
-        
-        if task_id:
-            # Get task details
-            conn = Connect()
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT title, description, category, priority, due_date, recurrence_pattern
-                FROM tasks 
-                WHERE id = ? AND user_id = ?
-            ''', (task_id, self.user_id))
-            task = cursor.fetchone()
-            conn.close()
-            
-            if task:
-                title, description, category, priority, due_date, recurrence_pattern = task
-                
-                # Show task details in a popup
-                details = f"Title: {title}\n"
-                if description:
-                    details += f"Description: {description}\n"
-                details += f"Category: {category}\n"
-                if priority:
-                    details += f"Priority: {priority}\n"
-                if due_date:
-                    details += f"Due Date: {due_date}\n"
-                if recurrence_pattern:
-                    details += f"Recurrence: {recurrence_pattern}"
-                
-                tkinter.messagebox.showinfo("Task Details", details)
 
 class TaskFormWindow(tk.Toplevel):
     def __init__(self, master, user_id):
@@ -1671,11 +1365,10 @@ class TaskFormWindow(tk.Toplevel):
                    self.user_id, recurrence_pattern)
             tkinter.messagebox.showinfo("Success", "Task saved successfully!")
             
-            # Refresh the task list and calendar in the main window
+            # Refresh the task list in the main window
             if hasattr(self.master, 'task_view') and self.master.task_view:
                 print("Refreshing task list")
                 self.master.filter_tasks_by_date(datetime.now())
-                self.master.update_calendar_tasks()  # Update calendar after adding task
             self.destroy()
         except Exception as e:
             print(f"Error saving task: {str(e)}")
