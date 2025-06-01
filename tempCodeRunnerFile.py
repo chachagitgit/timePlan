@@ -1,2 +1,2 @@
 
-dbName = "timePlanDB.db"
+    # Create table if it doesn't exist
