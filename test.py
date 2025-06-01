@@ -1062,9 +1062,13 @@ class TimePlanApp(tk.Tk):
         tree.bind('<<TreeviewSelect>>', self.on_task_select)
 
     def on_tab_changed(self, event=None):
-        # reload tasks for current date when tab changes
+        # reload tasks for current selection when tab changes
         if hasattr(self, 'current_date'):
-            self.filter_tasks_by_date(self.current_date)
+            # If we're showing all tasks (current_date is None) or have a specific date selected
+            if self.current_date is None:
+                self.show_all_tasks()
+            else:
+                self.filter_tasks_by_date(self.current_date)
 
     def mark_recurring_done_today(self, pattern=None):
         if pattern:
@@ -1119,6 +1123,7 @@ class TimePlanApp(tk.Tk):
         current_tree = None
         current_tab = self.task_notebook.select()
         
+        # Get the appropriate tree based on the current tab
         if current_tab == str(self.ongoing_tab):
             current_tree = self.ongoing_tree
         elif current_tab == str(self.recurring_tab):
@@ -1127,6 +1132,8 @@ class TimePlanApp(tk.Tk):
             current_tree = self.missed_tree
         elif current_tab == str(self.done_tab):
             current_tree = self.done_tree
+        elif current_tab == str(self.all_tasks_tab):
+            current_tree = self.all_tasks_tree
             
         if not current_tree:
             return
@@ -1144,7 +1151,11 @@ class TimePlanApp(tk.Tk):
                                                   icon='warning'):
             try:
                 DeleteTask(task_id, self.user_id)
-                self.filter_tasks_by_date(self.current_date)
+                # Refresh the view based on current state
+                if self.current_date is None:
+                    self.show_all_tasks()
+                else:
+                    self.filter_tasks_by_date(self.current_date)
                 self.update_calendar_tasks()
                 tkinter.messagebox.showinfo("Success", "Task deleted successfully!")
             except Exception as e:
