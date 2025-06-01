@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox
 from tkcalendar import Calendar #install sa bash yung tkcalendar "pip install tkcalendar"
-from datetime import datetime
+from datetime import datetime, timedelta
 import babel.numbers
 
 dbName = "timePlanDB.db"
@@ -642,7 +642,7 @@ class TimePlanApp(tk.Tk):
             fg="white",
             bg="#d39ffb",
             relief="flat",
-            command=lambda: self.filter_tasks_by_date(None),
+            command=self.show_all_tasks,
             cursor="hand2",
             padx=15,
             pady=5
@@ -799,10 +799,15 @@ class TimePlanApp(tk.Tk):
                     for item in tree.get_children():
                         tree.delete(item)
 
+            # clear all tasks tree
+            if self.all_tasks_tree and self.all_tasks_tree.winfo_exists():
+                for item in self.all_tasks_tree.get_children():
+                    self.all_tasks_tree.delete(item)
+
             # update missed tasks
             UpdateMissedTasks(self.user_id)
             
-            # get tasks - modify query based on whether we want all tasks or date-specific tasks
+            # get tasks - always get tasks for the selected date
             conn = Connect()
             cursor = conn.cursor()
             
@@ -814,7 +819,13 @@ class TimePlanApp(tk.Tk):
                         date('now', 'localtime') as today
                     FROM tasks 
                     WHERE user_id = ? 
-                    AND (date(due_date) = date(?) OR category = 'Recurring')
+                    AND (
+                        date(due_date) = date(?) 
+                        OR (
+                            category = 'Recurring' 
+                            AND recurrence_pattern IS NOT NULL
+                        )
+                    )
                     ORDER BY 
                         CASE 
                             WHEN priority = 'Urgent' THEN 1 
@@ -823,7 +834,8 @@ class TimePlanApp(tk.Tk):
                         due_date ASC
                 ''', (self.user_id, selected_date.strftime("%Y-%m-%d")))
             else:
-                # Query for all tasks
+                # If no date selected, show today's tasks
+                today = datetime.now()
                 cursor.execute('''
                     SELECT 
                         id, title, description, due_date, category, priority, 
@@ -831,6 +843,7 @@ class TimePlanApp(tk.Tk):
                         date('now', 'localtime') as today
                     FROM tasks 
                     WHERE user_id = ? 
+                    AND (date(due_date) = date('now', 'localtime') OR category = 'Recurring')
                     ORDER BY 
                         CASE 
                             WHEN priority = 'Urgent' THEN 1 
@@ -847,12 +860,56 @@ class TimePlanApp(tk.Tk):
 
             # Get current date for comparisons
             current_date = datetime.now().date()
+            selected_datetime = selected_date.date() if isinstance(selected_date, datetime) else selected_date
 
             # process tasks for each category
             for task in tasks:
                 task_id, title, desc, date, category, priority, last_completed, pattern, today = task
                 
-                # First add to All Tasks tab
+                # For recurring tasks, check if they actually occur on the selected date
+                if category == "Recurring" and pattern:
+                    task_date = datetime.strptime(date, '%Y-%m-%d').date()
+                    temp_date = task_date
+                    is_on_date = False
+                    
+                    # Check if this recurring task occurs on the selected date
+                    while temp_date <= selected_datetime:
+                        if temp_date == selected_datetime:
+                            is_on_date = True
+                            break
+                            
+                        # Calculate next occurrence based on pattern
+                        if pattern == "Daily":
+                            temp_date += timedelta(days=1)
+                        elif pattern == "Weekly":
+                            temp_date += timedelta(days=7)
+                        elif pattern == "Monthly":
+                            # Handle month rollover
+                            year = temp_date.year + (temp_date.month // 12)
+                            month = (temp_date.month % 12) + 1
+                            try:
+                                temp_date = temp_date.replace(year=year, month=month)
+                            except ValueError:
+                                if month == 2 and temp_date.day > 28:
+                                    temp_date = temp_date.replace(year=year, month=month, day=28)
+                                else:
+                                    if month == 12:
+                                        next_month = datetime(year + 1, 1, 1)
+                                    else:
+                                        next_month = datetime(year, month + 1, 1)
+                                    last_day = (next_month - timedelta(days=1)).day
+                                    temp_date = temp_date.replace(year=year, month=month, day=last_day)
+                        elif pattern == "Annually":
+                            try:
+                                temp_date = temp_date.replace(year=temp_date.year + 1)
+                            except ValueError:
+                                temp_date = temp_date.replace(year=temp_date.year + 1, month=2, day=28)
+                    
+                    # Only add the task if it occurs on the selected date
+                    if not is_on_date:
+                        continue
+                
+                # Add to All Tasks tab
                 if self.all_tasks_tree:
                     status = ""
                     if category == "On-going":
@@ -1541,6 +1598,128 @@ class TimePlanApp(tk.Tk):
                     details += f"Recurrence: {recurrence_pattern}"
                 
                 tkinter.messagebox.showinfo("Task Details", details)
+
+    def show_all_tasks(self):
+        # Reset button styles
+        for btn in self.date_buttons.values():
+            btn.configure(bg="white", fg="black")
+
+        try:
+            # Clear all trees first
+            for category in ["ongoing", "missed", "done"]:
+                tree = getattr(self, f"{category}_tree")
+                if tree and tree.winfo_exists():
+                    for item in tree.get_children():
+                        tree.delete(item)
+            
+            # Clear recurring trees
+            for tree in self.recurring_trees.values():
+                if tree and tree.winfo_exists():
+                    for item in tree.get_children():
+                        tree.delete(item)
+
+            # Clear all tasks tree
+            if self.all_tasks_tree and self.all_tasks_tree.winfo_exists():
+                for item in self.all_tasks_tree.get_children():
+                    self.all_tasks_tree.delete(item)
+
+            # Get all tasks
+            conn = Connect()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT 
+                    id, title, description, due_date, category, priority, 
+                    last_completed_date, recurrence_pattern,
+                    date('now', 'localtime') as today
+                FROM tasks 
+                WHERE user_id = ? 
+                ORDER BY 
+                    CASE 
+                        WHEN priority = 'Urgent' THEN 1 
+                        ELSE 2 
+                    END,
+                    due_date ASC
+            ''', (self.user_id,))
+            
+            tasks = cursor.fetchall()
+            conn.close()
+
+            # Clear task IDs dictionary
+            self.task_ids.clear()
+
+            # Process tasks for each category
+            for task in tasks:
+                task_id, title, desc, date, category, priority, last_completed, pattern, today = task
+                
+                # Add to All Tasks tab
+                if self.all_tasks_tree:
+                    status = ""
+                    if category == "On-going":
+                        status = "🔔 Active" if priority == "Urgent" else "📝 Active"
+                    elif category == "Recurring":
+                        status = "✅ Done Today" if last_completed == today else "⏳ Pending"
+                    elif category == "Missed":
+                        status = "❌ Overdue"
+                    elif category == "Done":
+                        status = "✅ Completed"
+                    
+                    values = (title, date, category, 
+                             f"⚡ {priority}" if priority else "", 
+                             status)
+                    item_id = self.all_tasks_tree.insert("", tk.END, values=values)
+                    
+                    # Apply appropriate tag
+                    if category == "Done":
+                        self.all_tasks_tree.item(item_id, tags=('completed',))
+                    elif category == "Missed":
+                        self.all_tasks_tree.item(item_id, tags=('overdue',))
+                    elif category == "Recurring":
+                        self.all_tasks_tree.item(item_id, tags=('recurring',))
+                    elif priority == "Urgent":
+                        self.all_tasks_tree.item(item_id, tags=('urgent',))
+                    
+                    self.task_ids[item_id] = task_id
+
+                # Add to respective category tabs
+                if category == "On-going":
+                    tree = self.ongoing_tree
+                    status = "🔔 Active" if priority == "Urgent" else "📝 Active"
+                    values = (title, date, f"⚡ {priority}" if priority else "", status)
+                    item_id = tree.insert("", tk.END, values=values)
+                    if priority == "Urgent":
+                        tree.item(item_id, tags=('urgent',))
+                    self.task_ids[item_id] = task_id
+                
+                elif category == "Recurring" and pattern:
+                    tree = self.recurring_trees.get(pattern)
+                    if tree:
+                        status = "✅ Done Today" if last_completed == today else "⏳ Pending"
+                        values = (title, date, status)
+                        item_id = tree.insert("", tk.END, values=values)
+                        if last_completed == today:
+                            tree.item(item_id, tags=('completed',))
+                        else:
+                            tree.item(item_id, tags=('pending',))
+                        self.task_ids[item_id] = task_id
+                
+                elif category == "Missed":
+                    tree = self.missed_tree
+                    values = (title, date, "❌ Overdue")
+                    item_id = tree.insert("", tk.END, values=values)
+                    tree.item(item_id, tags=('overdue',))
+                    self.task_ids[item_id] = task_id
+                
+                elif category == "Done":
+                    tree = self.done_tree
+                    values = (title, date, "✅ Completed")
+                    item_id = tree.insert("", tk.END, values=values)
+                    tree.item(item_id, tags=('completed',))
+                    self.task_ids[item_id] = task_id
+
+        except Exception as e:
+            print(f"Error showing all tasks: {str(e)}")
+            tkinter.messagebox.showerror("Error", f"Failed to show all tasks: {str(e)}")
 
 class TaskFormWindow(tk.Toplevel):
     def __init__(self, master, user_id):
