@@ -917,7 +917,7 @@ class TimePlanApp(tk.Tk):
                     elif category == "Recurring":
                         status = "✅ Done Today" if last_completed == today else "⏳ Pending"
                     elif category == "Missed":
-                        status = "❌ Overdue"
+                        status = "❌ Missed"
                     elif category == "Done":
                         status = "✅ Completed"
                     
@@ -930,7 +930,7 @@ class TimePlanApp(tk.Tk):
                     if category == "Done":
                         self.all_tasks_tree.item(item_id, tags=('completed',))
                     elif category == "Missed":
-                        self.all_tasks_tree.item(item_id, tags=('overdue',))
+                        self.all_tasks_tree.item(item_id, tags=('missed',))
                     elif category == "Recurring":
                         self.all_tasks_tree.item(item_id, tags=('recurring',))
                     elif priority == "Urgent":
@@ -969,9 +969,9 @@ class TimePlanApp(tk.Tk):
                 
                 elif category == "Missed":
                     tree = self.missed_tree
-                    values = (title, date, "❌ Overdue")
+                    values = (title, date, "❌ Missed")
                     item_id = tree.insert("", tk.END, values=values)
-                    tree.item(item_id, tags=('overdue',))
+                    tree.item(item_id, tags=('missed',))
                     self.task_ids[item_id] = task_id
                 
                 elif category == "Done":
@@ -1671,7 +1671,7 @@ class TimePlanApp(tk.Tk):
                     elif category == "Recurring":
                         status = "✅ Done Today" if last_completed == today else "⏳ Pending"
                     elif category == "Missed":
-                        status = "❌ Overdue"
+                        status = "❌ Missed"
                     elif category == "Done":
                         status = "✅ Completed"
                     
@@ -1716,7 +1716,7 @@ class TimePlanApp(tk.Tk):
                 
                 elif category == "Missed":
                     tree = self.missed_tree
-                    values = (title, date, "❌ Overdue")
+                    values = (title, date, "❌ Missed")
                     item_id = tree.insert("", tk.END, values=values)
                     tree.item(item_id, tags=('overdue',))
                     self.task_ids[item_id] = task_id
