@@ -7,7 +7,6 @@ from tkcalendar import Calendar #install sa bash yung tkcalendar "pip install tk
 from datetime import datetime
 import babel.numbers
 
-
 dbName = "timePlanDB.db"
 
 def Connect():
@@ -666,18 +665,21 @@ class TimePlanApp(tk.Tk):
         self.task_notebook.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
         # create tabs for each category
+        self.all_tasks_tab = ttk.Frame(self.task_notebook)
         self.ongoing_tab = ttk.Frame(self.task_notebook)
-        self.recurring_tab = ttk.Notebook(self.task_notebook)  # Changed to Notebook for sub-tabs
+        self.recurring_tab = ttk.Notebook(self.task_notebook)
         self.missed_tab = ttk.Frame(self.task_notebook)
         self.done_tab = ttk.Frame(self.task_notebook)
 
         # initialize all treeviews first
+        self.all_tasks_tree = None
         self.ongoing_tree = None
-        self.recurring_trees = {}  # Dictionary to store recurring trees by pattern
+        self.recurring_trees = {}
         self.missed_tree = None
         self.done_tree = None
 
-        # add tabs to notebook
+        # add tabs to notebook - add the All Tasks tab first
+        self.task_notebook.add(self.all_tasks_tab, text="All Tasks")
         self.task_notebook.add(self.ongoing_tab, text="On-going")
         self.task_notebook.add(self.recurring_tab, text="Recurring")
         self.task_notebook.add(self.missed_tab, text="Missed")
@@ -696,8 +698,9 @@ class TimePlanApp(tk.Tk):
         self.recurring_tab.add(self.annual_tab, text="Annually")
 
         # create treeviews for each tab
+        self.create_tab_treeview(self.all_tasks_tab, "All")
         self.create_tab_treeview(self.ongoing_tab, "On-going")
-        self.create_recurring_treeviews()  # New method for recurring tabs
+        self.create_recurring_treeviews()
         self.create_tab_treeview(self.missed_tab, "Missed")
         self.create_tab_treeview(self.done_tab, "Done")
 
@@ -849,6 +852,35 @@ class TimePlanApp(tk.Tk):
             for task in tasks:
                 task_id, title, desc, date, category, priority, last_completed, pattern, today = task
                 
+                # First add to All Tasks tab
+                if self.all_tasks_tree:
+                    status = ""
+                    if category == "On-going":
+                        status = "🔔 Active" if priority == "Urgent" else "📝 Active"
+                    elif category == "Recurring":
+                        status = "✅ Done Today" if last_completed == today else "⏳ Pending"
+                    elif category == "Missed":
+                        status = "❌ Overdue"
+                    elif category == "Done":
+                        status = "✅ Completed"
+                    
+                    values = (title, date, category, 
+                             f"⚡ {priority}" if priority else "", 
+                             status)
+                    item_id = self.all_tasks_tree.insert("", tk.END, values=values)
+                    
+                    # Apply appropriate tag
+                    if category == "Done":
+                        self.all_tasks_tree.item(item_id, tags=('completed',))
+                    elif category == "Missed":
+                        self.all_tasks_tree.item(item_id, tags=('overdue',))
+                    elif category == "Recurring":
+                        self.all_tasks_tree.item(item_id, tags=('recurring',))
+                    elif priority == "Urgent":
+                        self.all_tasks_tree.item(item_id, tags=('urgent',))
+                    
+                    self.task_ids[item_id] = task_id
+
                 if category == "On-going":
                     tree = self.ongoing_tree
                     status = "🔔 Active" if priority == "Urgent" else "📝 Active"
@@ -906,7 +938,11 @@ class TimePlanApp(tk.Tk):
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         # configure columns based on category
-        if category == "On-going":
+        if category == "All":
+            columns = ("title", "due_date", "category", "priority", "status")
+            headings = ("Task Name", "Due Date", "Category", "Priority", "Status")
+            widths = (200, 100, 100, 100, 100)
+        elif category == "On-going":
             columns = ("title", "due_date", "priority", "status")
             headings = ("Task Name", "Due Date", "Priority", "Status")
             widths = (250, 100, 100, 100)
@@ -937,9 +973,12 @@ class TimePlanApp(tk.Tk):
         tree.tag_configure('completed', background='#e8f5e9')  # light green
         tree.tag_configure('overdue', background='#ffebee')    # light red
         tree.tag_configure('urgent', background='#fff3e0')     # light orange
+        tree.tag_configure('recurring', background='#e3f2fd')  # light blue
 
         # store tree reference with correct name
-        if category == "On-going":
+        if category == "All":
+            self.all_tasks_tree = tree
+        elif category == "On-going":
             self.ongoing_tree = tree
         elif category == "Missed":
             self.missed_tree = tree
@@ -954,7 +993,7 @@ class TimePlanApp(tk.Tk):
         if category == "Recurring":
             ttk.Button(action_frame, text="Mark Done Today", 
                       command=self.mark_recurring_done_today).pack(side=tk.LEFT, padx=(0, 5))
-        elif category in ["On-going", "Missed"]:
+        elif category in ["On-going", "Missed", "All"]:  # Add "All" here
             ttk.Button(action_frame, text="Mark as Done",
                       command=self.mark_task_as_done).pack(side=tk.LEFT, padx=(0, 5))
 
