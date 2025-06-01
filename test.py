@@ -612,12 +612,17 @@ class TimePlanApp(tk.Tk):
                 bg="white" if d.strftime("%Y-%m-%d") != self.current_date.strftime("%Y-%m-%d") else "#d39ffb"
             ))
 
-        # add Task Button below date navigation
+        # buttons frame below date navigation
         add_btn_frame = tk.Frame(date_nav_frame, bg="white")
-        add_btn_frame.pack(fill="x")
-        
+        add_btn_frame.pack(fill=tk.X)
+
+        # create a frame for the buttons to be side by side
+        button_container = tk.Frame(add_btn_frame, bg="white")
+        button_container.pack(pady=(0, 10))
+
+        # Add New Task button
         add_btn = tk.Button(
-            add_btn_frame,
+            button_container,
             text=" Add New Task ➕",
             font=("Arial", 11, "bold"),
             fg="white",
@@ -628,16 +633,33 @@ class TimePlanApp(tk.Tk):
             padx=15,
             pady=5
         )
-        add_btn.pack(pady=(0, 10))
+        add_btn.pack(side=tk.LEFT, padx=(0, 10))
 
-        # add hover effect
-        def on_enter(e):
-            add_btn['background'] = '#c180f2'
-        def on_leave(e):
-            add_btn['background'] = '#d39ffb'
-        
-        add_btn.bind("<Enter>", on_enter)
-        add_btn.bind("<Leave>", on_leave)
+        # All Tasks button
+        all_tasks_btn = tk.Button(
+            button_container,
+            text=" All Tasks 📋",
+            font=("Arial", 11, "bold"),
+            fg="white",
+            bg="#d39ffb",
+            relief="flat",
+            command=lambda: self.filter_tasks_by_date(None),
+            cursor="hand2",
+            padx=15,
+            pady=5
+        )
+        all_tasks_btn.pack(side=tk.LEFT)
+
+        # add hover effect for both buttons
+        def on_enter(e, btn):
+            btn['background'] = '#c180f2'
+        def on_leave(e, btn):
+            btn['background'] = '#d39ffb'
+
+        add_btn.bind("<Enter>", lambda e: on_enter(e, add_btn))
+        add_btn.bind("<Leave>", lambda e: on_leave(e, add_btn))
+        all_tasks_btn.bind("<Enter>", lambda e: on_enter(e, all_tasks_btn))
+        all_tasks_btn.bind("<Leave>", lambda e: on_leave(e, all_tasks_btn))
 
         # create notebook for tabs
         self.task_notebook = ttk.Notebook(right_frame)
@@ -748,12 +770,17 @@ class TimePlanApp(tk.Tk):
         # update current date
         self.current_date = selected_date
         
-        # update button styles
-        for date_str, btn in self.date_buttons.items():
-            if date_str == selected_date.strftime("%Y-%m-%d"):
-                btn.configure(bg="#d39ffb", fg="white")
-            else:
+        # Reset all date button styles when showing all tasks
+        if selected_date is None:
+            for btn in self.date_buttons.values():
                 btn.configure(bg="white", fg="black")
+        # Update button styles only if a date is selected
+        else:
+            for date_str, btn in self.date_buttons.items():
+                if date_str == selected_date.strftime("%Y-%m-%d"):
+                    btn.configure(bg="#d39ffb", fg="white")
+                else:
+                    btn.configure(bg="white", fg="black")
 
         try:
             # clear all trees first
@@ -772,29 +799,51 @@ class TimePlanApp(tk.Tk):
             # update missed tasks
             UpdateMissedTasks(self.user_id)
             
-            # get tasks for the selected date
+            # get tasks - modify query based on whether we want all tasks or date-specific tasks
             conn = Connect()
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT 
-                    id, title, description, due_date, category, priority, 
-                    last_completed_date, recurrence_pattern,
-                    date('now', 'localtime') as today
-                FROM tasks 
-                WHERE user_id = ? 
-                AND (date(due_date) = date(?) OR category = 'Recurring')
-                ORDER BY 
-                    CASE 
-                        WHEN priority = 'Urgent' THEN 1 
-                        ELSE 2 
-                    END,
-                    due_date ASC
-            ''', (self.user_id, selected_date.strftime("%Y-%m-%d")))
+            
+            if selected_date is not None:
+                cursor.execute('''
+                    SELECT 
+                        id, title, description, due_date, category, priority, 
+                        last_completed_date, recurrence_pattern,
+                        date('now', 'localtime') as today
+                    FROM tasks 
+                    WHERE user_id = ? 
+                    AND (date(due_date) = date(?) OR category = 'Recurring')
+                    ORDER BY 
+                        CASE 
+                            WHEN priority = 'Urgent' THEN 1 
+                            ELSE 2 
+                        END,
+                        due_date ASC
+                ''', (self.user_id, selected_date.strftime("%Y-%m-%d")))
+            else:
+                # Query for all tasks
+                cursor.execute('''
+                    SELECT 
+                        id, title, description, due_date, category, priority, 
+                        last_completed_date, recurrence_pattern,
+                        date('now', 'localtime') as today
+                    FROM tasks 
+                    WHERE user_id = ? 
+                    ORDER BY 
+                        CASE 
+                            WHEN priority = 'Urgent' THEN 1 
+                            ELSE 2 
+                        END,
+                        due_date ASC
+                ''', (self.user_id,))
+            
             tasks = cursor.fetchall()
             conn.close()
 
             # clear task IDs dictionary
             self.task_ids.clear()
+
+            # Get current date for comparisons
+            current_date = datetime.now().date()
 
             # process tasks for each category
             for task in tasks:
@@ -819,57 +868,15 @@ class TimePlanApp(tk.Tk):
                     if not tree:
                         continue
 
-                    # check if this recurring task is relevant for the selected date
-                    from datetime import datetime, timedelta
-                    task_date = datetime.strptime(date, '%Y-%m-%d').date()
-                    selected_datetime = selected_date.date() if isinstance(selected_date, datetime) else selected_date
-                    
-                    # calculate if this task occurs on selected date
-                    temp_date = task_date
-                    is_on_date = False
-                    
-                    while temp_date <= selected_datetime:
-                        if temp_date == selected_datetime:
-                            is_on_date = True
-                            break
-                            
-                        # move to next occurrence based on pattern
-                        if pattern == "Daily":
-                            temp_date += timedelta(days=1)
-                        elif pattern == "Weekly":
-                            temp_date += timedelta(days=7)
-                        elif pattern == "Monthly":
-                            # handle month rollover
-                            year = temp_date.year + (temp_date.month // 12)
-                            month = (temp_date.month % 12) + 1
-                            try:
-                                temp_date = temp_date.replace(year=year, month=month)
-                            except ValueError:
-                                if month == 2 and temp_date.day > 28:
-                                    temp_date = temp_date.replace(year=year, month=month, day=28)
-                                else:
-                                    if month == 12:
-                                        next_month = datetime(year + 1, 1, 1)
-                                    else:
-                                        next_month = datetime(year, month + 1, 1)
-                                    last_day = (next_month - timedelta(days=1)).day
-                                    temp_date = temp_date.replace(year=year, month=month, day=last_day)
-                        elif pattern == "Annually":
-                            try:
-                                temp_date = temp_date.replace(year=temp_date.year + 1)
-                            except ValueError:
-                                temp_date = temp_date.replace(year=temp_date.year + 1, month=2, day=28)
-                    
-                    # only add the task if it occurs on the selected date
-                    if is_on_date:
-                        status = "✅ Done Today" if last_completed == today else "⏳ Pending"
-                        values = (title, date, status)
-                        item_id = tree.insert("", tk.END, values=values)
-                        if last_completed == today:
-                            tree.item(item_id, tags=('completed',))
-                        else:
-                            tree.item(item_id, tags=('pending',))
-                        self.task_ids[item_id] = task_id
+                    # For all tasks view, just show the recurring task with its base date
+                    status = "✅ Done Today" if last_completed == today else "⏳ Pending"
+                    values = (title, date, status)
+                    item_id = tree.insert("", tk.END, values=values)
+                    if last_completed == today:
+                        tree.item(item_id, tags=('completed',))
+                    else:
+                        tree.item(item_id, tags=('pending',))
+                    self.task_ids[item_id] = task_id
                 
                 elif category == "Missed":
                     tree = self.missed_tree
@@ -1279,7 +1286,6 @@ class TimePlanApp(tk.Tk):
                             try:
                                 temp_date = temp_date.replace(year=temp_date.year + 1)
                             except ValueError:
-                                # if it's February 29 and next year is not a leap year
                                 temp_date = temp_date.replace(year=temp_date.year + 1, month=2, day=28)
                     
                     # add all calculated dates to calendar with appropriate status
@@ -1298,7 +1304,7 @@ class TimePlanApp(tk.Tk):
                         elif category == "Missed":
                             self.calendar.calevent_create(task_date, f"❌ {title}", "missed")
                         else:  # on-going tasks
-                            self.calendar.calevent_create(task_date, f"�� {title}", "task")
+                            self.calendar.calevent_create(task_date, f"⏳ {title}", "task")
             except (ValueError, TypeError) as e:
                 print(f"Error processing task date: {e}")
                 continue
