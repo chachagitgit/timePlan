@@ -416,56 +416,62 @@ class TimePlanMainWindow(QMainWindow):
         
         query_map = {
             "today": """
-                SELECT id, title, due_date, status 
+                SELECT id, title, due_date, category 
                 FROM tasks 
                 WHERE user_id = ? 
                 AND date(due_date) = date('now')
             """,
             "next7": """
-                SELECT id, title, due_date, status 
+                SELECT id, title, due_date, category 
                 FROM tasks 
                 WHERE user_id = ? 
                 AND date(due_date) BETWEEN date('now') 
                 AND date('now', '+7 days')
             """,
             "all": """
-                SELECT id, title, due_date, status 
+                SELECT id, title, due_date, category 
                 FROM tasks 
                 WHERE user_id = ?
+                AND (is_recurring = 0 OR is_recurring IS NULL)
             """,
             "ongoing": """
-                SELECT id, title, due_date, status 
+                SELECT id, title, due_date, category 
                 FROM tasks 
                 WHERE user_id = ? 
-                AND status = 'On-going'
+                AND (category = 'On-going')
+                AND category != 'Completed'
             """,
             "completed": """
-                SELECT id, title, due_date, status 
+                SELECT id, title, due_date, category 
                 FROM tasks 
                 WHERE user_id = ? 
-                AND status = 'Completed'
+                AND (category = 'Completed')
             """,
             "missed": """
-                SELECT id, title, due_date, status 
+                SELECT id, title, due_date, category 
                 FROM tasks 
                 WHERE user_id = ? 
                 AND date(due_date) < date('now')
-                AND status != 'Completed'
+                AND category NOT IN ('Completed', 'Done')
             """
         }
         
-        cursor.execute(query_map[category], (self.user_id,))
-        tasks = cursor.fetchall()
-        conn.close()
-        
-        for task in tasks:
-            item = QTreeWidgetItem(self.task_list)
-            item.setText(0, task[1])  # Title
-            item.setText(1, task[2])  # Due Date
-            item.setText(2, task[3])  # Status
-            item.setData(0, Qt.ItemDataRole.UserRole, task[0])  # Store task ID
-        
-        self.task_count.setText(f"{len(tasks)} tasks")
+        try:
+            cursor.execute(query_map[category], (self.user_id,))
+            tasks = cursor.fetchall()
+            
+            for task in tasks:
+                item = QTreeWidgetItem(self.task_list)
+                item.setText(0, task[1])  # Title
+                item.setText(1, task[2])  # Due Date
+                item.setText(2, task[3])  # Status
+                item.setData(0, Qt.ItemDataRole.UserRole, task[0])  # Store task ID
+            
+            self.task_count.setText(f"{len(tasks)} tasks")
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+        finally:
+            conn.close()
 
     def center_window(self):
         qr = self.frameGeometry()
