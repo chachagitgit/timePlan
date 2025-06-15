@@ -460,7 +460,7 @@ class PlannerWidget(QWidget):
         task_list.setStyleSheet("""
             QTreeWidget {
                 border: none;
-                background: transparent;
+                background-color: transparent;
             }
             QTreeWidget::item {
                 padding: 2px;
@@ -551,6 +551,81 @@ class PlannerWidget(QWidget):
         self.load_tasks()
         self.update_calendar()
 
+class HabitWidget(QWidget):
+    def __init__(self, user_id, parent=None):
+        super().__init__(parent)
+        self.user_id = user_id
+        self.initUI()
+        self.load_habits()
+
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Header
+        header = QLabel("Habits & Recurring Tasks")
+        header.setStyleSheet("""
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        """)
+        layout.addWidget(header)
+
+        # Habit list
+        self.habit_list = QTreeWidget()
+        self.habit_list.setHeaderLabels(["Task", "Recurrence", "Last Completed", "Status"])
+        self.habit_list.setStyleSheet("""
+            QTreeWidget {
+                border: 1px solid #dcdde1;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QTreeWidget::item {
+                padding: 8px;
+            }
+            QTreeWidget::item:hover {
+                background-color: #f5f6fa;
+            }
+        """)
+        layout.addWidget(self.habit_list)
+
+    def load_habits(self):
+        self.habit_list.clear()
+        conn = Connect()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT id, title, recurrence_pattern, last_completed_date, status 
+                FROM tasks 
+                WHERE user_id = ? 
+                AND is_recurring = 1
+                ORDER BY last_completed_date DESC
+            """, (self.user_id,))
+
+            for task_id, title, recurrence, last_completed, status in cursor.fetchall():
+                item = QTreeWidgetItem([
+                    title,
+                    recurrence or "Daily",
+                    last_completed or "Never",
+                    status or "Pending"
+                ])
+
+                # Color code based on status
+                if status == 'Completed':
+                    item.setForeground(3, QColor('#27ae60'))
+                elif status == 'Missed':
+                    item.setForeground(3, QColor('#e74c3c'))
+
+                self.habit_list.addTopLevelItem(item)
+                item.setData(0, Qt.ItemDataRole.UserRole, task_id)
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+        finally:
+            conn.close()
+
 class TimePlanMainWindow(QMainWindow):
     def __init__(self, user_id, username):
         super().__init__()
@@ -577,16 +652,19 @@ class TimePlanMainWindow(QMainWindow):
         # Create views
         self.tasks_view = self.create_tasks_view()
         self.calendar_view = self.create_calendar_view()
+        self.habit_view = self.create_habit_view()
 
         # Add views to stacked widget
         self.stacked_widget.addWidget(self.tasks_view)
         self.stacked_widget.addWidget(self.calendar_view)
+        self.stacked_widget.addWidget(self.habit_view)
 
         # Connect sidebar buttons
         self.sidebar.nav_buttons[0].clicked.connect(
             lambda: self.stacked_widget.setCurrentWidget(self.tasks_view)
         )
         self.sidebar.nav_buttons[1].clicked.connect(self.show_calendar_view)
+        self.sidebar.nav_buttons[2].clicked.connect(self.show_habit_view)
 
         self.center_window()
 
@@ -764,6 +842,9 @@ class TimePlanMainWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         return scroll
 
+    def create_habit_view(self):
+        return HabitWidget(self.user_id)
+
     def on_date_selected(self, date):
         date_str = date.toString("yyyy-MM-dd")
         if date_str in self.calendar.tasks:
@@ -788,6 +869,12 @@ class TimePlanMainWindow(QMainWindow):
         if hasattr(self, 'planner'):
             self.planner.load_tasks()
             self.planner.update_calendar()
+
+    def show_habit_view(self):
+        self.stacked_widget.setCurrentWidget(self.habit_view)
+        # Refresh habits when switching to the view
+        if hasattr(self, 'habit_view'):
+            self.habit_view.load_habits()
 
 def main():
     app = QApplication(sys.argv)
