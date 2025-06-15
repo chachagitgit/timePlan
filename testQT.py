@@ -1,9 +1,14 @@
 import sys
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, 
-                            QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
-                            QMessageBox, QFrame, QTreeWidget, QTreeWidgetItem,
-                            QStackedWidget)
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QLabel, QGridLayout,
+    QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
+    QMessageBox, QFrame, QTreeWidget, QTreeWidgetItem,
+    QStackedWidget, QCalendarWidget, QToolTip, QScrollArea
+)
+from PyQt6.QtCore import Qt, QRect, QSize
+from PyQt6.QtGui import QPainter, QColor, QPen
+from datetime import datetime, date
+import calendar
 import sqlite3
 import hashlib
 
@@ -273,6 +278,249 @@ class CollapsibleSidebar(QWidget):
         
         self.is_expanded = not self.is_expanded
 
+class TaskCalendarWidget(QCalendarWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.tasks = {}  # Dictionary to store tasks by date
+        
+    def paintCell(self, painter: QPainter, rect: QRect, date):
+        # Paint the original cell
+        super().paintCell(painter, rect, date)
+        
+        # If there are tasks for this date
+        date_str = date.toString("yyyy-MM-dd")
+        if date_str in self.tasks:
+            # Draw a colored dot or task count
+            tasks = self.tasks[date_str]
+            task_count = len(tasks)
+            
+            if task_count > 0:
+                # Draw task count
+                painter.save()
+                painter.setPen(QColor("#2980b9"))
+                painter.drawText(
+                    rect, 
+                    Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight,
+                    f"{task_count}"
+                )
+                
+                # Draw colored dot
+                dot_size = 8
+                painter.setBrush(QColor("#2980b9"))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(
+                    rect.right() - dot_size - 4,
+                    rect.top() + 4,
+                    dot_size,
+                    dot_size
+                )
+                painter.restore()
+    
+    def updateTasks(self, user_id):
+        self.tasks.clear()
+        conn = Connect()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                SELECT title, due_date, status 
+                FROM tasks 
+                WHERE user_id = ?
+                AND due_date IS NOT NULL
+                AND due_date != ''
+            """, (user_id,))
+            
+            for title, due_date, status in cursor.fetchall():
+                if due_date:  # Check if due_date is not None or empty
+                    try:
+                        # Handle different date formats
+                        if ' ' in due_date:  # If date contains time
+                            date_str = due_date.split()[0]  # Get just the date part
+                        else:
+                            date_str = due_date  # Use the whole string as date
+                            
+                        if date_str not in self.tasks:
+                            self.tasks[date_str] = []
+                        self.tasks[date_str].append({
+                            'title': title,
+                            'status': status
+                        })
+                    except Exception as e:
+                        print(f"Error processing date '{due_date}': {e}")
+                        continue
+            
+            self.updateCells()  # Refresh calendar display
+            
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+        finally:
+            conn.close()
+
+class PlannerWidget(QWidget):
+    def __init__(self, user_id, parent=None):
+        super().__init__(parent)
+        self.user_id = user_id
+        self.tasks = {}
+        self.current_date = datetime.now()
+        self.initUI()
+        self.load_tasks()
+
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        
+        # Month navigation
+        nav_layout = QHBoxLayout()
+        self.prev_month = QPushButton("◀")
+        self.next_month = QPushButton("▶")
+        self.month_label = QLabel()
+        self.month_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        
+        nav_layout.addWidget(self.prev_month)
+        nav_layout.addWidget(self.month_label)
+        nav_layout.addWidget(self.next_month)
+        layout.addLayout(nav_layout)
+
+        # Connect navigation buttons
+        self.prev_month.clicked.connect(self.previous_month)
+        self.next_month.clicked.connect(self.next_month_clicked)
+
+        # Create grid layout for calendar
+        self.grid = QGridLayout()
+        layout.addLayout(self.grid)
+        
+        # Initial calendar display
+        self.update_calendar()
+
+    def update_calendar(self):
+        # Clear existing grid
+        for i in reversed(range(self.grid.count())):
+            self.grid.itemAt(i).widget().setParent(None)
+
+        # Update month label
+        self.month_label.setText(self.current_date.strftime("%B %Y"))
+
+        # Add day headers
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        for i, day in enumerate(days):
+            label = QLabel(day)
+            label.setStyleSheet("""
+                padding: 10px;
+                background-color: #f0f0f0;
+                border: 1px solid #ddd;
+                font-weight: bold;
+            """)
+            self.grid.addWidget(label, 0, i)
+
+        # Get calendar data
+        cal = calendar.monthcalendar(self.current_date.year, self.current_date.month)
+
+        # Add day cells
+        for row, week in enumerate(cal, 1):
+            for col, day in enumerate(week):
+                if day != 0:
+                    cell = self.create_day_cell(day)
+                    self.grid.addWidget(cell, row, col)
+                else:
+                    # Empty cell for days outside current month
+                    empty = QWidget()
+                    empty.setStyleSheet("background-color: #f9f9f9;")
+                    self.grid.addWidget(empty, row, col)
+
+    def create_day_cell(self, day):
+        cell = QWidget()
+        cell_layout = QVBoxLayout(cell)
+        cell_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Date number
+        date_label = QLabel(f"{day}")
+        date_label.setStyleSheet("font-weight: bold;")
+        cell_layout.addWidget(date_label)
+        
+        # Task list
+        task_list = QTreeWidget()
+        task_list.setHeaderHidden(True)
+        task_list.setMaximumHeight(100)
+        task_list.setStyleSheet("""
+            QTreeWidget {
+                border: none;
+                background: transparent;
+            }
+            QTreeWidget::item {
+                padding: 2px;
+            }
+        """)
+
+        # Add tasks for this day
+        date_str = f"{self.current_date.year}-{self.current_date.month:02d}-{day:02d}"
+        if date_str in self.tasks:
+            for task in self.tasks[date_str]:
+                item = QTreeWidgetItem([task['title']])
+                if task['status'] == 'Completed':
+                    item.setForeground(0, QColor('#27ae60'))
+                elif task['status'] == 'Missed':
+                    item.setForeground(0, QColor('#e74c3c'))
+                task_list.addTopLevelItem(item)
+
+        cell_layout.addWidget(task_list)
+        
+        cell.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border: 1px solid #ddd;
+            }
+        """)
+        return cell
+
+    def load_tasks(self):
+        self.tasks.clear()
+        conn = Connect()
+        cursor = conn.cursor()
+        
+        try:
+            # Get tasks for current month
+            month_start = f"{self.current_date.year}-{self.current_date.month:02d}-01"
+            month_end = f"{self.current_date.year}-{self.current_date.month:02d}-31"
+            
+            cursor.execute("""
+                SELECT title, due_date, status 
+                FROM tasks 
+                WHERE user_id = ?
+                AND due_date BETWEEN ? AND ?
+                AND due_date IS NOT NULL
+                AND due_date != ''
+            """, (self.user_id, month_start, month_end))
+            
+            for title, due_date, status in cursor.fetchall():
+                if due_date:
+                    date_str = due_date.split()[0] if ' ' in due_date else due_date
+                    if date_str not in self.tasks:
+                        self.tasks[date_str] = []
+                    self.tasks[date_str].append({
+                        'title': title,
+                        'status': status
+                    })
+            
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+        finally:
+            conn.close()
+
+    def previous_month(self):
+        if self.current_date.month == 1:
+            self.current_date = self.current_date.replace(year=self.current_date.year - 1, month=12)
+        else:
+            self.current_date = self.current_date.replace(month=self.current_date.month - 1)
+        self.load_tasks()
+        self.update_calendar()
+
+    def next_month_clicked(self):
+        if self.current_date.month == 12:
+            self.current_date = self.current_date.replace(year=self.current_date.year + 1, month=1)
+        else:
+            self.current_date = self.current_date.replace(month=self.current_date.month + 1)
+        self.load_tasks()
+        self.update_calendar()
+
 class TimePlanMainWindow(QMainWindow):
     def __init__(self, user_id, username):
         super().__init__()
@@ -280,7 +528,7 @@ class TimePlanMainWindow(QMainWindow):
         self.username = username
         self.setWindowTitle("TimePlan")
         self.setMinimumSize(1000, 600)
-
+        
         # Create main widget and layout
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -296,13 +544,21 @@ class TimePlanMainWindow(QMainWindow):
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
 
-        # Create and add different views
+        # Create views
         self.tasks_view = self.create_tasks_view()
+        self.calendar_view = self.create_calendar_view()
+
+        # Add views to stacked widget
         self.stacked_widget.addWidget(self.tasks_view)
+        self.stacked_widget.addWidget(self.calendar_view)
 
         # Connect sidebar buttons
-        self.sidebar.nav_buttons[0].clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.tasks_view))
-        # TODO: Add other views and connect their buttons
+        self.sidebar.nav_buttons[0].clicked.connect(
+            lambda: self.stacked_widget.setCurrentWidget(self.tasks_view)
+        )
+        self.sidebar.nav_buttons[1].clicked.connect(
+            lambda: self.stacked_widget.setCurrentWidget(self.calendar_view)
+        )
 
         self.center_window()
 
@@ -472,6 +728,25 @@ class TimePlanMainWindow(QMainWindow):
             print(f"Database error: {e}")
         finally:
             conn.close()
+
+    def create_calendar_view(self):
+        scroll = QScrollArea()
+        self.planner = PlannerWidget(user_id=self.user_id)  # Pass user_id here
+        scroll.setWidget(self.planner)
+        scroll.setWidgetResizable(True)
+        return scroll
+
+    def on_date_selected(self, date):
+        date_str = date.toString("yyyy-MM-dd")
+        if date_str in self.calendar.tasks:
+            tasks = self.calendar.tasks[date_str]
+            tasks_str = "\n".join([f"• {task['title']} ({task['status']})" 
+                                  for task in tasks])
+            QToolTip.showText(
+                self.mapToGlobal(self.calendar.pos()),
+                f"Tasks for {date.toString('MMMM d, yyyy')}:\n{tasks_str}",
+                self.calendar
+            )
 
     def center_window(self):
         qr = self.frameGeometry()
