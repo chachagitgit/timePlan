@@ -363,7 +363,9 @@ class PlannerWidget(QWidget):
         self.tasks = {}
         self.current_date = datetime.now()
         self.initUI()
+        # Load tasks immediately after initialization
         self.load_tasks()
+        self.update_calendar()
 
     def initUI(self):
         layout = QVBoxLayout(self)
@@ -431,9 +433,24 @@ class PlannerWidget(QWidget):
         cell_layout = QVBoxLayout(cell)
         cell_layout.setContentsMargins(5, 5, 5, 5)
         
+        # Format date string to match database format
+        date_str = f"{self.current_date.year}-{self.current_date.month:02d}-{day:02d}"
+        
+        # Highlight today's date
+        is_today = (date.today().strftime("%Y-%m-%d") == date_str)
+        
         # Date number
         date_label = QLabel(f"{day}")
-        date_label.setStyleSheet("font-weight: bold;")
+        if is_today:
+            date_label.setStyleSheet("""
+                font-weight: bold;
+                color: white;
+                background-color: #2980b9;
+                padding: 2px 5px;
+                border-radius: 2px;
+            """)
+        else:
+            date_label.setStyleSheet("font-weight: bold;")
         cell_layout.addWidget(date_label)
         
         # Task list
@@ -451,7 +468,6 @@ class PlannerWidget(QWidget):
         """)
 
         # Add tasks for this day
-        date_str = f"{self.current_date.year}-{self.current_date.month:02d}-{day:02d}"
         if date_str in self.tasks:
             for task in self.tasks[date_str]:
                 item = QTreeWidgetItem([task['title']])
@@ -463,11 +479,12 @@ class PlannerWidget(QWidget):
 
         cell_layout.addWidget(task_list)
         
-        cell.setStyleSheet("""
-            QWidget {
-                background-color: white;
-                border: 1px solid #ddd;
-            }
+        # Style the cell
+        cell.setStyleSheet(f"""
+            QWidget {{
+                background-color: {'#f0f7ff' if is_today else 'white'};
+                border: 1px solid {'#2980b9' if is_today else '#ddd'};
+            }}
         """)
         return cell
 
@@ -477,28 +494,41 @@ class PlannerWidget(QWidget):
         cursor = conn.cursor()
         
         try:
-            # Get tasks for current month
+            # Get all tasks for current month
             month_start = f"{self.current_date.year}-{self.current_date.month:02d}-01"
-            month_end = f"{self.current_date.year}-{self.current_date.month:02d}-31"
+            if self.current_date.month == 12:
+                next_month_year = self.current_date.year + 1
+                next_month = 1
+            else:
+                next_month_year = self.current_date.year
+                next_month = self.current_date.month + 1
+            month_end = f"{next_month_year}-{next_month:02d}-01"
             
             cursor.execute("""
                 SELECT title, due_date, status 
                 FROM tasks 
                 WHERE user_id = ?
-                AND due_date BETWEEN ? AND ?
+                AND date(due_date) >= date(?)
+                AND date(due_date) < date(?)
                 AND due_date IS NOT NULL
                 AND due_date != ''
             """, (self.user_id, month_start, month_end))
             
             for title, due_date, status in cursor.fetchall():
-                if due_date:
-                    date_str = due_date.split()[0] if ' ' in due_date else due_date
-                    if date_str not in self.tasks:
-                        self.tasks[date_str] = []
-                    self.tasks[date_str].append({
-                        'title': title,
-                        'status': status
-                    })
+                try:
+                    if due_date:
+                        date_str = due_date.split()[0] if ' ' in due_date else due_date
+                        if date_str not in self.tasks:
+                            self.tasks[date_str] = []
+                        self.tasks[date_str].append({
+                            'title': title,
+                            'status': status
+                        })
+                except Exception as e:
+                    print(f"Error processing task date '{due_date}': {e}")
+                    continue
+            
+            print(f"Loaded {len(self.tasks)} days with tasks")
             
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -556,9 +586,7 @@ class TimePlanMainWindow(QMainWindow):
         self.sidebar.nav_buttons[0].clicked.connect(
             lambda: self.stacked_widget.setCurrentWidget(self.tasks_view)
         )
-        self.sidebar.nav_buttons[1].clicked.connect(
-            lambda: self.stacked_widget.setCurrentWidget(self.calendar_view)
-        )
+        self.sidebar.nav_buttons[1].clicked.connect(self.show_calendar_view)
 
         self.center_window()
 
@@ -753,6 +781,13 @@ class TimePlanMainWindow(QMainWindow):
         cp = self.screen().availableGeometry().center()
         qr.moveCenter(cp)
         self.move(qr.topLeft())
+
+    def show_calendar_view(self):
+        self.stacked_widget.setCurrentWidget(self.calendar_view)
+        # Refresh tasks when switching to calendar
+        if hasattr(self, 'planner'):
+            self.planner.load_tasks()
+            self.planner.update_calendar()
 
 def main():
     app = QApplication(sys.argv)
