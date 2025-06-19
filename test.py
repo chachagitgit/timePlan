@@ -39,7 +39,7 @@ def CreateTable():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             description TEXT,
-            category TEXT,
+            category_id INTEGER,
             priority TEXT,
             due_date TEXT,
             is_recurring INTEGER DEFAULT 0,
@@ -48,7 +48,8 @@ def CreateTable():
             last_completed_date TEXT,
             user_id INTEGER NOT NULL,
             recurrence_pattern TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (category_id) REFERENCES task_category(category_id)
         )
     ''')
     conn.commit()
@@ -57,16 +58,16 @@ def CreateTable():
     # check and update schema if needed
     CheckAndUpdateSchema()
 
-def AddTask(title, description, category, priority, dueDate, isRecurring, user_id, recurrence_pattern=None):
-    print(f"Adding task to database: Title={title}, Category={category}, Priority={priority}")
+def AddTask(title, description, category_id, priority, dueDate, isRecurring, user_id, recurrence_pattern=None):
+    print(f"Adding task to database: Title={title}, CategoryID={category_id}, Priority={priority}")
     conn = Connect()
     cursor = conn.cursor()
     try:
         cursor.execute('''INSERT INTO tasks (
-            title, description, category, priority, due_date, is_recurring, 
+            title, description, category_id, priority, due_date, is_recurring, 
             last_completed_date, user_id, recurrence_pattern
         ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)''', 
-            (title, description, category, priority, dueDate, isRecurring, user_id, recurrence_pattern))
+            (title, description, category_id, priority, dueDate, isRecurring, user_id, recurrence_pattern))
         conn.commit()
         print("Task added successfully to database")
     except Exception as e:
@@ -80,24 +81,25 @@ def GetTasksFiltered(user_id, category_filter=None, priority_filter=None):
     cursor = conn.cursor()
     query = """
         SELECT 
-            id, 
-            title, 
-            due_date, 
-            category, 
-            priority,
-            last_completed_date,
+            t.id, 
+            t.title, 
+            t.due_date, 
+            c.category_name, 
+            t.priority,
+            t.last_completed_date,
             date('now', 'localtime') as today
-        FROM tasks 
-        WHERE user_id = ?
+        FROM tasks t
+        LEFT JOIN task_category c ON t.category_id = c.category_id
+        WHERE t.user_id = ?
     """
     params = [user_id]
     if category_filter and category_filter != "All":
-        query += " AND category = ?"
+        query += " AND c.category_name = ?"
         params.append(category_filter)
     if priority_filter and priority_filter != "All":
-        query += " AND priority = ?"
+        query += " AND t.priority = ?"
         params.append(priority_filter)
-    query += " ORDER BY due_date"
+    query += " ORDER BY t.due_date"
     cursor.execute(query, params)
     tasks = cursor.fetchall()
     conn.close()
@@ -161,8 +163,13 @@ def AuthenticateUser(username, password):
 def UpdateTaskStatus(taskId, new_status):
     conn = Connect()
     cursor = conn.cursor()
-    cursor.execute('UPDATE tasks SET category = ? WHERE id = ?', (new_status, taskId))
-    conn.commit()
+    # Get the category_id for the new_status
+    cursor.execute('SELECT category_id FROM task_category WHERE category_name = ?', (new_status,))
+    result = cursor.fetchone()
+    if result:
+        category_id = result[0]
+        cursor.execute('UPDATE tasks SET category_id = ? WHERE id = ?', (category_id, taskId))
+        conn.commit()
     conn.close()
 
 def MarkRecurringTaskComplete(taskId):
@@ -176,16 +183,23 @@ def MarkRecurringTaskComplete(taskId):
 def UpdateMissedTasks(user_id):
     conn = Connect()
     cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE tasks 
-        SET category = 'Missed'
-        WHERE user_id = ?
-        AND category NOT IN ('Recurring', 'Done', 'Missed')
-        AND due_date < date('now', 'localtime')
-        AND due_date IS NOT NULL
-        AND due_date != ''
-    ''', (user_id,))
-    conn.commit()
+    # Get the category_id for 'Missed'
+    cursor.execute('SELECT category_id FROM task_category WHERE category_name = ?', ('Missed',))
+    result = cursor.fetchone()
+    if result:
+        missed_category_id = result[0]
+        cursor.execute('''
+            UPDATE tasks 
+            SET category_id = ?
+            WHERE user_id = ?
+            AND (category_id IS NULL OR category_id NOT IN (
+                SELECT category_id FROM task_category WHERE category_name IN ('Recurring', 'Done', 'Missed')
+            ))
+            AND due_date < date('now', 'localtime')
+            AND due_date IS NOT NULL
+            AND due_date != ''
+        ''', (missed_category_id, user_id))
+        conn.commit()
     conn.close()
 
 class LoginWindow(tk.Tk):
@@ -814,7 +828,7 @@ class TimePlanApp(tk.Tk):
             if selected_date is not None:
                 cursor.execute('''
                     SELECT 
-                        id, title, description, due_date, category, priority, 
+                        id, title, description, due_date, category_id, priority, 
                         last_completed_date, recurrence_pattern,
                         date('now', 'localtime') as today
                     FROM tasks 
@@ -822,7 +836,9 @@ class TimePlanApp(tk.Tk):
                     AND (
                         date(due_date) = date(?) 
                         OR (
-                            category = 'Recurring' 
+                            category_id IN (
+                                SELECT category_id FROM task_category WHERE category_name = 'Recurring'
+                            ) 
                             AND recurrence_pattern IS NOT NULL
                         )
                     )
@@ -838,12 +854,12 @@ class TimePlanApp(tk.Tk):
                 today = datetime.now()
                 cursor.execute('''
                     SELECT 
-                        id, title, description, due_date, category, priority, 
+                        id, title, description, due_date, category_id, priority, 
                         last_completed_date, recurrence_pattern,
                         date('now', 'localtime') as today
                     FROM tasks 
                     WHERE user_id = ? 
-                    AND (date(due_date) = date('now', 'localtime') OR category = 'Recurring')
+                    AND (date(due_date) = date('now', 'localtime') OR category_id IN (SELECT category_id FROM task_category WHERE category_name = 'Recurring'))
                     ORDER BY 
                         CASE 
                             WHEN priority = 'Urgent' THEN 1 
@@ -864,10 +880,10 @@ class TimePlanApp(tk.Tk):
 
             # process tasks for each category
             for task in tasks:
-                task_id, title, desc, date, category, priority, last_completed, pattern, today = task
+                task_id, title, desc, date, category_id, priority, last_completed, pattern, today = task
                 
                 # For recurring tasks, check if they actually occur on the selected date
-                if category == "Recurring" and pattern:
+                if category_id in [3] and pattern:  # 3 is the ID for 'Recurring'
                     task_date = datetime.strptime(date, '%Y-%m-%d').date()
                     temp_date = task_date
                     is_on_date = False
@@ -912,33 +928,33 @@ class TimePlanApp(tk.Tk):
                 # Add to All Tasks tab
                 if self.all_tasks_tree:
                     status = ""
-                    if category == "On-going":
+                    if category_id == 2:  # 2 is the ID for 'On-going'
                         status = "🔔 Active" if priority == "Urgent" else "📝 Active"
-                    elif category == "Recurring":
+                    elif category_id == 3:  # 3 is the ID for 'Recurring'
                         status = "✅ Done Today" if last_completed == today else "⏳ Pending"
-                    elif category == "Missed":
+                    elif category_id == 4:  # 4 is the ID for 'Missed'
                         status = "❌ Missed"
-                    elif category == "Done":
+                    elif category_id == 5:  # 5 is the ID for 'Done'
                         status = "✅ Completed"
                     
-                    values = (title, date, category, 
+                    values = (title, date, category_id, 
                              f"⚡ {priority}" if priority else "", 
                              status)
                     item_id = self.all_tasks_tree.insert("", tk.END, values=values)
                     
                     # Apply appropriate tag
-                    if category == "Done":
+                    if category_id == 5:
                         self.all_tasks_tree.item(item_id, tags=('completed',))
-                    elif category == "Missed":
+                    elif category_id == 4:
                         self.all_tasks_tree.item(item_id, tags=('missed',))
-                    elif category == "Recurring":
+                    elif category_id == 3:
                         self.all_tasks_tree.item(item_id, tags=('recurring',))
                     elif priority == "Urgent":
                         self.all_tasks_tree.item(item_id, tags=('urgent',))
                     
                     self.task_ids[item_id] = task_id
 
-                if category == "On-going":
+                if category_id == 2:  # 2 is the ID for 'On-going'
                     tree = self.ongoing_tree
                     status = "🔔 Active" if priority == "Urgent" else "📝 Active"
                     values = (title, date, f"⚡ {priority}" if priority else "", status)
@@ -947,7 +963,7 @@ class TimePlanApp(tk.Tk):
                         tree.item(item_id, tags=('urgent',))
                     self.task_ids[item_id] = task_id
                 
-                elif category == "Recurring":
+                elif category_id == 3:  # 3 is the ID for 'Recurring'
                     # skip if no pattern is set
                     if not pattern:
                         continue
@@ -967,14 +983,14 @@ class TimePlanApp(tk.Tk):
                         tree.item(item_id, tags=('pending',))
                     self.task_ids[item_id] = task_id
                 
-                elif category == "Missed":
+                elif category_id == 4:  # 4 is the ID for 'Missed'
                     tree = self.missed_tree
                     values = (title, date, "❌ Missed")
                     item_id = tree.insert("", tk.END, values=values)
                     tree.item(item_id, tags=('missed',))
                     self.task_ids[item_id] = task_id
                 
-                elif category == "Done":
+                elif category_id == 5:  # 5 is the ID for 'Done'
                     tree = self.done_tree
                     values = (title, date, "✅ Completed")
                     item_id = tree.insert("", tk.END, values=values)
@@ -1211,9 +1227,9 @@ class TimePlanApp(tk.Tk):
         cursor.execute('''
             SELECT 
                 COUNT(*) as total,
-                SUM(CASE WHEN category = 'On-going' THEN 1 ELSE 0 END) as ongoing,
-                SUM(CASE WHEN category = 'Done' THEN 1 ELSE 0 END) as done,
-                SUM(CASE WHEN category = 'Missed' THEN 1 ELSE 0 END) as missed
+                SUM(CASE WHEN category_id = (SELECT category_id FROM task_category WHERE category_name = 'On-going') THEN 1 ELSE 0 END) as ongoing,
+                SUM(CASE WHEN category_id = (SELECT category_id FROM task_category WHERE category_name = 'Done') THEN 1 ELSE 0 END) as done,
+                SUM(CASE WHEN category_id = (SELECT category_id FROM task_category WHERE category_name = 'Missed') THEN 1 ELSE 0 END) as missed
             FROM tasks 
             WHERE user_id = ?
         ''', (self.user_id,))
@@ -1236,7 +1252,7 @@ class TimePlanApp(tk.Tk):
             SELECT title, due_date, strftime('%d', due_date) as day
             FROM tasks 
             WHERE user_id = ? 
-            AND category = 'On-going'
+            AND category_id = (SELECT category_id FROM task_category WHERE category_name = 'On-going')
             AND due_date >= date('now')
             ORDER BY due_date
             LIMIT 5
@@ -1325,7 +1341,7 @@ class TimePlanApp(tk.Tk):
         
         # get all tasks including recurring ones
         cursor.execute('''
-            SELECT due_date, title, category, recurrence_pattern, last_completed_date 
+            SELECT due_date, title, category_id, recurrence_pattern, last_completed_date 
             FROM tasks 
             WHERE user_id = ? 
             AND due_date IS NOT NULL 
@@ -1341,12 +1357,12 @@ class TimePlanApp(tk.Tk):
         current_date = datetime.now().date()
         
         # process each task
-        for due_date, title, category, recurrence_pattern, last_completed in tasks:
+        for due_date, title, category_id, recurrence_pattern, last_completed in tasks:
             try:
                 task_date = datetime.strptime(due_date, '%Y-%m-%d').date()
                 
                 # for recurring tasks, add multiple instances
-                if category == "Recurring" and recurrence_pattern:
+                if category_id == 3 and recurrence_pattern:  # 3 is the ID for 'Recurring'
                     # calculate next occurrences
                     dates_to_add = []
                     temp_date = task_date
@@ -1406,9 +1422,9 @@ class TimePlanApp(tk.Tk):
                 else:
                     # for non-recurring tasks
                     if task_date >= current_date:
-                        if category == "Done":
+                        if category_id == 5:  # 5 is the ID for 'Done'
                             self.calendar.calevent_create(task_date, f"✓ {title}", "completed")
-                        elif category == "Missed":
+                        elif category_id == 4:  # 4 is the ID for 'Missed'
                             self.calendar.calevent_create(task_date, f"❌ {title}", "missed")
                         else:  # on-going tasks
                             self.calendar.calevent_create(task_date, f"⏳ {title}", "task")
@@ -1431,10 +1447,10 @@ class TimePlanApp(tk.Tk):
         
         # first get all tasks for the selected date
         cursor.execute('''
-            SELECT title, category, priority, recurrence_pattern, due_date, last_completed_date 
+            SELECT title, category_id, priority, recurrence_pattern, due_date, last_completed_date 
             FROM tasks 
             WHERE user_id = ?
-            ORDER BY category, priority
+            ORDER BY category_id, priority
         ''', (self.user_id,))
         tasks = cursor.fetchall()
         conn.close()
@@ -1448,12 +1464,12 @@ class TimePlanApp(tk.Tk):
         selected_datetime = datetime.strptime(selected_date, '%Y-%m-%d').date()
         tasks_for_date = []
 
-        for title, category, priority, recurrence_pattern, due_date, last_completed in tasks:
+        for title, category_id, priority, recurrence_pattern, due_date, last_completed in tasks:
             try:
                 task_date = datetime.strptime(due_date, '%Y-%m-%d').date()
                 
                 # handle recurring tasks
-                if category == "Recurring" and recurrence_pattern:
+                if category_id == 3 and recurrence_pattern:  # 3 is the ID for 'Recurring'
                     # calculate if this task occurs on selected date
                     temp_date = task_date
                     is_on_date = False
@@ -1501,25 +1517,25 @@ class TimePlanApp(tk.Tk):
                     
                     if is_on_date:
                         status = "✓ Done Today" if is_completed else "⏳ Not Done Today"
-                        tasks_for_date.append((title, category, priority, status, recurrence_pattern))
+                        tasks_for_date.append((title, category_id, priority, status, recurrence_pattern))
                 
                 # handle non-recurring tasks
                 elif task_date == selected_datetime:
                     status = ""
-                    if category == "Done":
+                    if category_id == 5:  # 5 is the ID for 'Done'
                         status = "✓ Completed"
-                    elif category == "Missed":
+                    elif category_id == 4:  # 4 is the ID for 'Missed'
                         status = "❌ Missed"
-                    elif category == "On-going":
+                    elif category_id == 2:  # 2 is the ID for 'On-going'
                         status = "⏳ Pending"
-                    tasks_for_date.append((title, category, priority, status, None))
+                    tasks_for_date.append((title, category_id, priority, status, None))
                     
             except (ValueError, TypeError) as e:
                 print(f"Error processing task date: {e}")
                 continue
 
         if tasks_for_date:
-            for title, category, priority, status, recurrence_pattern in tasks_for_date:
+            for title, category_id, priority, status, recurrence_pattern in tasks_for_date:
                 priority_text = f" ({priority})" if priority else ""
                 recurrence_text = f" [{recurrence_pattern}]" if recurrence_pattern else ""
                 status_text = f" - {status}" if status else ""
@@ -1586,7 +1602,7 @@ class TimePlanApp(tk.Tk):
             conn = Connect()
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT title, description, category, priority, due_date, recurrence_pattern
+                SELECT title, description, category_id, priority, due_date, recurrence_pattern
                 FROM tasks 
                 WHERE id = ? AND user_id = ?
             ''', (task_id, self.user_id))
@@ -1594,13 +1610,13 @@ class TimePlanApp(tk.Tk):
             conn.close()
             
             if task:
-                title, description, category, priority, due_date, recurrence_pattern = task
+                title, description, category_id, priority, due_date, recurrence_pattern = task
                 
                 # show task details in a popup
                 details = f"Title: {title}\n"
                 if description:
                     details += f"Description: {description}\n"
-                details += f"Category: {category}\n"
+                details += f"Category: {category_id}\n"
                 if priority:
                     details += f"Priority: {priority}\n"
                 if due_date:
@@ -1640,7 +1656,7 @@ class TimePlanApp(tk.Tk):
             
             cursor.execute('''
                 SELECT 
-                    id, title, description, due_date, category, priority, 
+                    id, title, description, due_date, category_id, priority, 
                     last_completed_date, recurrence_pattern,
                     date('now', 'localtime') as today
                 FROM tasks 
@@ -1661,31 +1677,31 @@ class TimePlanApp(tk.Tk):
 
             # Process tasks for each category
             for task in tasks:
-                task_id, title, desc, date, category, priority, last_completed, pattern, today = task
+                task_id, title, desc, date, category_id, priority, last_completed, pattern, today = task
                 
                 # Add to All Tasks tab
                 if self.all_tasks_tree:
                     status = ""
-                    if category == "On-going":
+                    if category_id == 2:  # 2 is the ID for 'On-going'
                         status = "🔔 Active" if priority == "Urgent" else "📝 Active"
-                    elif category == "Recurring":
+                    elif category_id == 3:  # 3 is the ID for 'Recurring'
                         status = "✅ Done Today" if last_completed == today else "⏳ Pending"
-                    elif category == "Missed":
+                    elif category_id == 4:  # 4 is the ID for 'Missed'
                         status = "❌ Missed"
-                    elif category == "Done":
+                    elif category_id == 5:  # 5 is the ID for 'Done'
                         status = "✅ Completed"
                     
-                    values = (title, date, category, 
+                    values = (title, date, category_id, 
                              f"⚡ {priority}" if priority else "", 
                              status)
                     item_id = self.all_tasks_tree.insert("", tk.END, values=values)
                     
                     # Apply appropriate tag
-                    if category == "Done":
+                    if category_id == 5:
                         self.all_tasks_tree.item(item_id, tags=('completed',))
-                    elif category == "Missed":
+                    elif category_id == 4:
                         self.all_tasks_tree.item(item_id, tags=('overdue',))
-                    elif category == "Recurring":
+                    elif category_id == 3:
                         self.all_tasks_tree.item(item_id, tags=('recurring',))
                     elif priority == "Urgent":
                         self.all_tasks_tree.item(item_id, tags=('urgent',))
@@ -1693,7 +1709,7 @@ class TimePlanApp(tk.Tk):
                     self.task_ids[item_id] = task_id
 
                 # Add to respective category tabs
-                if category == "On-going":
+                if category_id == 2:  # 2 is the ID for 'On-going'
                     tree = self.ongoing_tree
                     status = "🔔 Active" if priority == "Urgent" else "📝 Active"
                     values = (title, date, f"⚡ {priority}" if priority else "", status)
@@ -1702,7 +1718,7 @@ class TimePlanApp(tk.Tk):
                         tree.item(item_id, tags=('urgent',))
                     self.task_ids[item_id] = task_id
                 
-                elif category == "Recurring" and pattern:
+                elif category_id == 3:  # 3 is the ID for 'Recurring'
                     tree = self.recurring_trees.get(pattern)
                     if tree:
                         status = "✅ Done Today" if last_completed == today else "⏳ Pending"
@@ -1714,14 +1730,14 @@ class TimePlanApp(tk.Tk):
                             tree.item(item_id, tags=('pending',))
                         self.task_ids[item_id] = task_id
                 
-                elif category == "Missed":
+                elif category_id == 4:  # 4 is the ID for 'Missed'
                     tree = self.missed_tree
                     values = (title, date, "❌ Missed")
                     item_id = tree.insert("", tk.END, values=values)
                     tree.item(item_id, tags=('overdue',))
                     self.task_ids[item_id] = task_id
                 
-                elif category == "Done":
+                elif category_id == 5:  # 5 is the ID for 'Done'
                     tree = self.done_tree
                     values = (title, date, "✅ Completed")
                     item_id = tree.insert("", tk.END, values=values)
@@ -1731,6 +1747,14 @@ class TimePlanApp(tk.Tk):
         except Exception as e:
             print(f"Error showing all tasks: {str(e)}")
             tkinter.messagebox.showerror("Error", f"Failed to show all tasks: {str(e)}")
+
+def get_categories():
+    conn = Connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT category_id, category_name FROM task_category")
+    categories = cursor.fetchall()
+    conn.close()
+    return categories
 
 class TaskFormWindow(tk.Toplevel):
     def __init__(self, master, user_id):
@@ -1783,11 +1807,12 @@ class TaskFormWindow(tk.Toplevel):
 
         # category dropdown
         ttk.Label(main_frame, text="Category:").pack(anchor=tk.W, pady=(10,0))
+        categories = get_categories()
         self.category_var = tk.StringVar()
         self.category_dropdown = ttk.Combobox(
             main_frame,
             textvariable=self.category_var,
-            values=["Recurring", "On-going"],
+            values=[cat[1] for cat in categories],  # Show names
             state="readonly"
         )
         self.category_dropdown.pack(fill=tk.X)
@@ -1901,7 +1926,10 @@ class TaskFormWindow(tk.Toplevel):
 
         try:
             print(f"Saving task: Title={title}, Category={category}, Priority={priority}")
-            AddTask(title, description, category, priority, date, is_recurring, 
+            category_name = self.category_var.get()
+            categories = get_categories()  # Fetch categories here
+            category_id = next((cat[0] for cat in categories if cat[1] == category_name), None)
+            AddTask(title, description, category_id, priority, date, is_recurring, 
                    self.user_id, recurrence_pattern)
             tkinter.messagebox.showinfo("Success", "Task saved successfully!")
             

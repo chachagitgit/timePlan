@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QRect, QSize
 from PyQt6.QtGui import QPainter, QColor, QPen
 from datetime import datetime, date
+#
 import calendar
 import sqlite3
 import hashlib
@@ -41,6 +42,38 @@ def AuthenticateUser(username, password):
     user = cursor.fetchone()
     conn.close()
     return user
+
+def CreateHabitCompletionsTable():
+    conn = Connect()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS habit_completions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            habit_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            completion_date TEXT NOT NULL,
+            FOREIGN KEY (habit_id) REFERENCES habits(id),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def CreateHabitsTable():
+    conn = Connect()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS habits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            frequency INTEGER NOT NULL,
+            last_completed TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
 class LoginWindow(QMainWindow):
     def __init__(self):
@@ -556,26 +589,30 @@ class HabitWidget(QWidget):
         super().__init__(parent)
         self.user_id = user_id
         self.initUI()
-        self.load_habits()
+        self.load_recurring_tasks()
 
     def initUI(self):
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
 
+        # Left panel for recurring tasks list
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+
         # Header
-        header = QLabel("Habits & Recurring Tasks")
+        header = QLabel("Recurring Tasks")
         header.setStyleSheet("""
             font-size: 24px;
             font-weight: bold;
             color: #2c3e50;
             margin-bottom: 20px;
         """)
-        layout.addWidget(header)
+        left_layout.addWidget(header)
 
-        # Habit list
-        self.habit_list = QTreeWidget()
-        self.habit_list.setHeaderLabels(["Task", "Recurrence", "Last Completed", "Status"])
-        self.habit_list.setStyleSheet("""
+        # Task list
+        self.task_list = QTreeWidget()
+        self.task_list.setHeaderLabels(["Task", "Recurrence", "Last Completed"])
+        self.task_list.setStyleSheet("""
             QTreeWidget {
                 border: 1px solid #dcdde1;
                 border-radius: 4px;
@@ -588,41 +625,90 @@ class HabitWidget(QWidget):
                 background-color: #f5f6fa;
             }
         """)
-        layout.addWidget(self.habit_list)
+        left_layout.addWidget(self.task_list)
+        
+        # Right panel for calendar
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        
+        # Calendar widget
+        self.calendar = TaskCalendarWidget(self)
+        self.calendar.setMinimumWidth(400)
+        right_layout.addWidget(self.calendar)
 
-    def load_habits(self):
-        self.habit_list.clear()
+        # Add panels to main layout
+        layout.addWidget(left_panel, stretch=1)
+        layout.addWidget(right_panel, stretch=1)
+
+        # Connect task selection to calendar update
+        self.task_list.itemSelectionChanged.connect(self.update_calendar_checkmarks)
+
+    def load_recurring_tasks(self):
         conn = Connect()
         cursor = conn.cursor()
-
         try:
-            cursor.execute("""
-                SELECT id, title, recurrence_pattern, last_completed_date, status 
+            cursor.execute('''
+                SELECT id, title, recurrence, last_completed
                 FROM tasks 
-                WHERE user_id = ? 
-                AND is_recurring = 1
-                ORDER BY last_completed_date DESC
-            """, (self.user_id,))
-
-            for task_id, title, recurrence, last_completed, status in cursor.fetchall():
-                item = QTreeWidgetItem([
-                    title,
-                    recurrence or "Daily",
-                    last_completed or "Never",
-                    status or "Pending"
-                ])
-
-                # Color code based on status
-                if status == 'Completed':
-                    item.setForeground(3, QColor('#27ae60'))
-                elif status == 'Missed':
-                    item.setForeground(3, QColor('#e74c3c'))
-
-                self.habit_list.addTopLevelItem(item)
+                WHERE user_id = ? AND category = 'Recurring'
+                ORDER BY title
+            ''', (self.user_id,))
+            
+            tasks = cursor.fetchall()
+            self.task_list.clear()
+            
+            for task in tasks:
+                item = QTreeWidgetItem(self.task_list)
+                task_id, title, recurrence, last_completed = task
+                
+                # Store task_id for later use
                 item.setData(0, Qt.ItemDataRole.UserRole, task_id)
-
+                
+                # Set column values
+                item.setText(0, title)
+                item.setText(1, f"Every {recurrence} days")
+                item.setText(2, last_completed if last_completed else "Never")
+                
+                # Check if task is due (highlight if overdue)
+                if last_completed:
+                    last_date = datetime.strptime(last_completed, '%Y-%m-%d').date()
+                    days_since = (date.today() - last_date).days
+                    if days_since >= recurrence:
+                        item.setForeground(0, QColor('red'))
+                
         except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            QMessageBox.warning(self, "Database Error", str(e))
+        finally:
+            conn.close()
+
+    def update_calendar_checkmarks(self):
+        selected_items = self.task_list.selectedItems()
+        if not selected_items:
+            return
+            
+        task_item = selected_items[0]
+        task_id = task_item.data(0, Qt.ItemDataRole.UserRole)
+        
+        # Clear existing marks
+        self.calendar.tasks.clear()
+        
+        # Get the last completed date for selected task
+        conn = Connect()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT last_completed FROM tasks 
+                WHERE id = ? AND user_id = ?
+            ''', (task_id, self.user_id))
+            result = cursor.fetchone()
+            
+            if result and result[0]:
+                last_completed = result[0]
+                self.calendar.tasks[last_completed] = True
+                
+            self.calendar.updateCell()
+        except sqlite3.Error as e:
+            QMessageBox.warning(self, "Database Error", str(e))
         finally:
             conn.close()
 
