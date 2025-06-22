@@ -127,6 +127,7 @@ class DatabaseManager:
     # --- CRUD operations for Tasks ---
     # add_task method remains unchanged as it never had a 'status' argument after previous removal
     def add_task(self, user_id, title, description=None, priority=None, due_date=None, category_id=1):
+        """Add a new task and return the new task ID on success."""
         description = description if description else None
         priority = priority if priority else None
         due_date = due_date if due_date else None # due_date should be 'YYYY-MM-DD' format
@@ -135,8 +136,14 @@ class DatabaseManager:
             INSERT INTO tasks (user_id, title, description, priority, due_date, category_id)
             VALUES (?, ?, ?, ?, ?, ?)
         """
-        return self._execute_query(query, (user_id, title, description, priority, due_date, category_id))
-
+        success = self._execute_query(query, (user_id, title, description, priority, due_date, category_id))
+        
+        if success:
+            # Get the ID of the last inserted row
+            last_id = self._fetch_one("SELECT last_insert_rowid()")
+            return last_id[0] if last_id else None
+        return None
+        
     def get_tasks(self, user_id, filter_type='All Tasks'):
         query = "SELECT t.id, t.title, t.description, t.priority, t.due_date, tc.category_name " \
                 "FROM tasks t JOIN task_category tc ON t.category_id = tc.category_id " \
@@ -147,47 +154,54 @@ class DatabaseManager:
         current_local_date = datetime.now(philippines_timezone)
         current_local_date_str = current_local_date.strftime('%Y-%m-%d')
         
-        # Get the ID of the "Completed" category to filter
+        # Get the IDs of important categories
         completed_cat_id_row = self._fetch_one("SELECT category_id FROM task_category WHERE category_name = ?", ("Completed",))
         completed_category_id = completed_cat_id_row[0] if completed_cat_id_row else None
+        
+        ongoing_cat_id_row = self._fetch_one("SELECT category_id FROM task_category WHERE category_name = ?", ("On-going",))
+        ongoing_category_id = ongoing_cat_id_row[0] if ongoing_cat_id_row else None
+        
+        missed_cat_id_row = self._fetch_one("SELECT category_id FROM task_category WHERE category_name = ?", ("Missed",))
+        missed_category_id = missed_cat_id_row[0] if missed_cat_id_row else None
 
-        # Apply general filtering based on 'Completed' category
-        if completed_category_id:
-            if filter_type != 'Completed': # Most filters should exclude completed tasks
-                query += "AND t.category_id != ? "
-                params.append(completed_category_id)
-            else: # 'Completed' filter specifically targets the completed category
-                query += "AND t.category_id = ? "
-                params.append(completed_category_id)
-
-        # Apply date-based filters
+        # Apply filters based on the filter type
         if filter_type == 'Today':
-            query += "AND t.due_date = ? "
+            # Today: display the on-going tasks for today
+            query += "AND t.due_date = ? AND tc.category_name = 'On-going' "
             params.append(current_local_date_str)
         elif filter_type == 'Next 7 Days':
+            # Next 7 days: display the on-going tasks for the next 7 days
             next_7_days_str = (current_local_date + timedelta(days=7)).strftime('%Y-%m-%d')
-            query += "AND t.due_date BETWEEN ? AND ? "
+            query += "AND t.due_date BETWEEN ? AND ? AND tc.category_name = 'On-going' "
             params.extend([current_local_date_str, next_7_days_str])
+        elif filter_type == 'All Tasks':
+            # All tasks: display all tasks, regardless of category (no additional filter)
+            pass
         elif filter_type == 'On-going':
-            # On-going means tasks with a due date in the future or no due date
-            query += "AND (t.due_date >= ? OR t.due_date IS NULL) "
-            # We need to explicitly check that the category is "On-going" here, as other filters might also have due_date in future
-            # However, the filter_type 'On-going' already implies this through the category ID later in example usage.
-            # For now, let's assume 'On-going' filter_type is sufficient. If you want to strictly filter by the 'On-going' category,
-            # you would add an additional `AND t.category_id = ?` clause here and pass the 'On-going' category ID.
-            params.append(current_local_date_str)
-        elif filter_type == 'Missed':
-            query += "AND t.due_date < ? "
-            params.append(current_local_date_str)
-        # 'All Tasks' does not add extra WHERE clauses other than user_id and excluding 'Completed' (if applicable)
-
-        # Add ordering
-        if filter_type == 'Missed':
-            query += "ORDER BY t.due_date ASC"
+            # On-going: display all on-going tasks
+            if ongoing_category_id:
+                query += "AND t.category_id = ? "
+                params.append(ongoing_category_id)
         elif filter_type == 'Completed':
-            query += "ORDER BY t.title ASC" # A logical order for completed tasks
-        else: # For Today, Next 7 Days, On-going, All Tasks
-            query += "ORDER BY t.due_date ASC, t.priority DESC"
+            # Completed: display all completed tasks
+            if completed_category_id:
+                query += "AND t.category_id = ? "
+                params.append(completed_category_id)
+        elif filter_type == 'Missed':
+            # Missed: display all missed tasks
+            if missed_category_id:
+                query += "AND t.category_id = ? "
+                params.append(missed_category_id)
+
+        # Add ordering by date
+        # For all filters, sort by due date (nearest first)
+        # Tasks with NULL due_date will be at the end
+        if filter_type in ['All Tasks', 'On-going', 'Today', 'Next 7 Days']:
+            # For tasks that need closest due date first
+            query += "ORDER BY CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END, t.due_date ASC, t.priority DESC"
+        elif filter_type in ['Completed', 'Missed']:
+            # For completed/missed tasks, sort by date (could be oldest first or newest first)
+            query += "ORDER BY t.due_date DESC" # Most recently completed/missed first
         
         return self._fetch_all(query, params)
 
@@ -249,6 +263,15 @@ class DatabaseManager:
     def get_user_by_username(self, username):
         query = "SELECT id, username, password FROM users WHERE username = ?"
         return self._fetch_one(query, (username,))
+
+    def update_task(self, task_id, title, description, priority, due_date, category_id):
+        """Update all fields of a task at once."""
+        query = """
+            UPDATE tasks 
+            SET title = ?, description = ?, priority = ?, due_date = ?, category_id = ?
+            WHERE id = ?
+        """
+        return self._execute_query(query, (title, description, priority, due_date, category_id, task_id))
 
 # Example usage (for testing the DatabaseManager separately)
 if __name__ == '__main__':
