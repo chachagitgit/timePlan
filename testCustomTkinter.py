@@ -157,7 +157,7 @@ class TimePlanApp(ctk.CTk):
             ("Tasks", lambda: self.show_tasks_page('All Tasks')),
             ("Calendar", self.show_calendar_page),
             ("Habit", None),
-            ("Add Task", self.show_add_task_page),
+            ("Add Task", self.show_add_task_dialog),
             ("Search Task", None),
             ("Profile", None),
             ("Sign Out", None)
@@ -1208,6 +1208,134 @@ class TimePlanApp(ctk.CTk):
                 btn.configure(fg_color="#A85BC2", text_color="white")
             else:
                 btn.configure(fg_color="transparent", text_color="#A85BC2")
+
+    def determine_category_by_date(self, due_date_str):
+        """Determine the task category based on the due date."""
+        if not due_date_str:
+            return self.on_going_category_id
+
+        try:
+            due_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+            today = datetime.now().date()
+            
+            if due_date < today:
+                return self.missed_category_id
+            else:
+                return self.on_going_category_id
+        except ValueError:
+            return self.on_going_category_id
+
+    def show_add_task_dialog(self):
+        # Create the popup window
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add New Task")
+        dialog.geometry("400x600")  # More compact size
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center the dialog on the screen
+        window_width = 400
+        window_height = 600
+        screen_width = dialog.winfo_screenwidth()
+        screen_height = dialog.winfo_screenheight()
+        center_x = int((screen_width - window_width) / 2)
+        center_y = int((screen_height - window_height) / 2)
+        dialog.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
+
+        # Create a scrollable frame
+        scroll_container = ctk.CTkScrollableFrame(dialog, fg_color="white", corner_radius=10)
+        scroll_container.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Heading
+        ctk.CTkLabel(
+            scroll_container,
+            text="Add New Task",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(pady=(10, 20))
+
+        # Title
+        ctk.CTkLabel(scroll_container, text="Title:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6A057F").pack(anchor="w")
+        title_entry = ctk.CTkEntry(scroll_container, placeholder_text="Task title")
+        title_entry.pack(fill="x", pady=(0, 15))
+
+        # Description
+        ctk.CTkLabel(scroll_container, text="Description:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6A057F").pack(anchor="w")
+        description_entry = ctk.CTkTextbox(scroll_container, height=80)  # Reduced height
+        description_entry.pack(fill="x", pady=(0, 15))
+
+        # Priority
+        ctk.CTkLabel(scroll_container, text="Priority:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6A057F").pack(anchor="w")
+        priority_menu = ctk.CTkOptionMenu(scroll_container, values=["Not urgent", "Urgent"])
+        priority_menu.set("Not urgent")
+        priority_menu.pack(fill="x", pady=(0, 15))
+
+        # Due Date
+        ctk.CTkLabel(scroll_container, text="Due Date:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6A057F").pack(anchor="w")
+        due_date_var = ctk.StringVar()
+        due_date_entry = ctk.CTkEntry(scroll_container, textvariable=due_date_var)
+        due_date_entry.pack(fill="x", pady=(0, 5))
+
+        # Calendar Frame
+        calendar_frame = ctk.CTkFrame(scroll_container, fg_color="#FFFFFF", corner_radius=5)
+        calendar_frame.pack(fill="x", pady=(0, 15))
+
+        cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
+                      background="#FFFFFF",
+                      selectbackground="#A85BC2",
+                      headersbackground="#C576E0",
+                      headersforeground="white",
+                      normalbackground="#FFFFFF",
+                      showweeknumbers=False,
+                      showothermonthdays=True,
+                      font=("Arial", 10),
+                      showmonth=True,
+                      foreground="black")
+
+        def on_date_selected(event=None):
+            due_date_var.set(cal.get_date())
+        
+        cal.bind("<<CalendarSelected>>", on_date_selected)
+        cal.pack(padx=5, pady=5, fill="x")
+
+        # Add Task Button
+        def save_task():
+            title = title_entry.get().strip()
+            if not title:
+                messagebox.showerror("Error", "Title is required!")
+                return
+
+            description = description_entry.get("1.0", ctk.END).strip()
+            due_date = due_date_var.get()
+            priority = priority_menu.get()
+
+            # Determine category based on due date
+            category_id = self.determine_category_by_date(due_date)
+
+            success = self.db_manager.add_task(
+                title=title,
+                description=description if description else None,
+                priority=priority,
+                due_date=due_date if due_date else None,
+                category_id=category_id,
+                user_id=self.current_user_id
+            )
+
+            if success:
+                messagebox.showinfo("Success", "Task added successfully!")
+                dialog.destroy()
+                self.show_tasks_page("All Tasks")
+            else:
+                messagebox.showerror("Error", "Failed to add task!")
+
+        save_btn = ctk.CTkButton(
+            scroll_container,
+            text="Add Task",
+            command=save_task,
+            fg_color="#A85BC2",
+            hover_color="#C576E0"
+        )
+        save_btn.pack(fill="x", pady=20)
 
 if __name__ == "__main__":
     app = TimePlanApp()
