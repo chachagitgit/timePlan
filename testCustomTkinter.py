@@ -153,12 +153,11 @@ class TimePlanApp(ctk.CTk):
         self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
 
         self.sidebar_buttons = []
-        sidebar_buttons = [
-            ("Tasks", lambda: self.show_tasks_page('All Tasks')),
+        sidebar_buttons = [            ("Tasks", lambda: self.show_tasks_page('All Tasks')),
             ("Calendar", self.show_calendar_page),
             ("Habit", None),
             ("Add Task", self.show_add_task_dialog),
-            ("Search Task", None),
+            ("Search Task", self.show_search_dialog),
             ("Profile", None),
             ("Sign Out", None)
         ]
@@ -1336,6 +1335,143 @@ class TimePlanApp(ctk.CTk):
             hover_color="#C576E0"
         )
         save_btn.pack(fill="x", pady=20)
+
+    def show_search_dialog(self):
+        # Create the popup window
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Search Task")
+        dialog.geometry("400x300")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center the dialog on the screen
+        window_width = 400
+        window_height = 300
+        screen_width = dialog.winfo_screenwidth()
+        screen_height = dialog.winfo_screenheight()
+        center_x = int((screen_width - window_width) / 2)
+        center_y = int((screen_height - window_height) / 2)
+        dialog.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
+
+        # Create content frame
+        content_frame = ctk.CTkFrame(dialog, fg_color="white", corner_radius=10)
+        content_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Heading
+        ctk.CTkLabel(
+            content_frame,
+            text="Search Task",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(pady=(20, 30))
+
+        # Search entry with icon
+        search_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+        search_frame.pack(fill="x", padx=20, pady=(0, 20))
+
+        search_var = ctk.StringVar()
+        search_entry = ctk.CTkEntry(
+            search_frame, 
+            placeholder_text="Enter task title to search...",
+            textvariable=search_var,
+            height=40,
+            font=ctk.CTkFont(size=14)
+        )
+        search_entry.pack(fill="x", side="left", expand=True)
+
+        # Results combobox
+        results_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+        results_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        # Label for results
+        results_label = ctk.CTkLabel(
+            results_frame,
+            text="No results found",
+            font=ctk.CTkFont(size=12),
+            text_color="#666666"
+        )
+        results_label.pack(fill="x", pady=(10, 0))
+
+        # Combobox for results
+        results_combobox = ttk.Combobox(
+            results_frame,
+            state="readonly",
+            height=5,
+            font=("Arial", 12)
+        )
+        results_combobox.pack(fill="x", pady=(5, 0))
+
+        # Dictionary to store task IDs mapped to their display strings
+        task_map = {}
+
+        def on_search(*args):
+            search_text = search_var.get().strip().lower()
+            if len(search_text) < 2:
+                results_label.configure(text="Enter at least 2 characters to search")
+                results_combobox['values'] = ()
+                task_map.clear()
+                return
+
+            # Search in database
+            query = """
+                SELECT t.id, t.title, t.due_date, tc.category_name
+                FROM tasks t
+                JOIN task_category tc ON t.category_id = tc.category_id
+                WHERE LOWER(t.title) LIKE ? AND t.user_id = ?
+                ORDER BY t.due_date DESC
+            """
+            search_pattern = f"%{search_text}%"
+            results = self.db_manager._fetch_all(query, (search_pattern, self.current_user_id))
+
+            if not results:
+                results_label.configure(text="No matching tasks found")
+                results_combobox['values'] = ()
+                task_map.clear()
+                return
+
+            # Format results for display
+            display_results = []
+            task_map.clear()
+            
+            for task_id, title, due_date, category in results:
+                if due_date:
+                    display_text = f"{title} ({category} - Due: {due_date})"
+                else:
+                    display_text = f"{title} ({category})"
+                display_results.append(display_text)
+                task_map[display_text] = task_id
+
+            results_label.configure(text=f"Found {len(results)} matching tasks")
+            results_combobox['values'] = display_results
+            if display_results:
+                results_combobox.set(display_results[0])
+
+        def on_select(event):
+            selected = results_combobox.get()
+            if selected and selected in task_map:
+                task_id = task_map[selected]
+                dialog.destroy()
+                # Get the category of the selected task
+                query = """
+                    SELECT tc.category_name 
+                    FROM tasks t 
+                    JOIN task_category tc ON t.category_id = tc.category_id 
+                    WHERE t.id = ?
+                """
+                result = self.db_manager._fetch_one(query, (task_id,))
+                if result:
+                    category_name = result[0]
+                    # Show the appropriate filtered page
+                    self.show_tasks_page(category_name)
+                    # Show the task details
+                    self.show_task_detail(task_id)
+
+        # Bind events
+        search_var.trace('w', on_search)
+        results_combobox.bind('<<ComboboxSelected>>', on_select)
+        
+        # Set focus to search entry
+        search_entry.focus_set()
 
 if __name__ == "__main__":
     app = TimePlanApp()
