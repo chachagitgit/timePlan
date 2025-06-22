@@ -5,6 +5,7 @@ from databaseManagement import DatabaseManager
 from datetime import datetime, timedelta
 import pytz
 from tkinter import messagebox  # <-- Add this import
+from tkinter import ttk  # <-- Add this import for ttk.Button
 
 # Import the calendar widget from tkcalendar
 from tkcalendar import Calendar
@@ -401,7 +402,8 @@ class TimePlanApp(ctk.CTk):
                        weekendbackground="white", weekendforeground="#A85BC2",
                        showweeknumbers=False, showothermonthdays=True,
                        font=("Arial", 12), headersbackground="#C576E0", 
-                       headersforeground="white")
+                       headersforeground="white",
+                       foreground="black")
         cal.pack(fill="both", expand=True, padx=10, pady=10)
 
     def show_add_task_page(self):
@@ -663,9 +665,7 @@ class TimePlanApp(ctk.CTk):
         self.edit_task_due_date_entry.insert(0, due_date if due_date else "")
           # Calendar widget below the entry
         calendar_frame = ctk.CTkFrame(due_date_container, fg_color="#FFFFFF", corner_radius=5)
-        calendar_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))          
-        
-        # Calendar directly in the form
+        calendar_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))          # Calendar directly in the form
         cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
                        background="#FFFFFF", 
                        selectbackground="#A85BC2",
@@ -673,7 +673,8 @@ class TimePlanApp(ctk.CTk):
                        headersforeground="white",
                        normalbackground="#FFFFFF",
                        showweeknumbers=False, showothermonthdays=True,
-                       font=("Arial", 10))
+                       font=("Arial", 10),
+                       showmonth=True)
         
         def on_date_selected(event=None):
             selected_date = cal.get_date()
@@ -1027,7 +1028,6 @@ class TimePlanApp(ctk.CTk):
         # Calendar frame
         calendar_frame = ctk.CTkFrame(form_frame, fg_color="#FFFFFF", corner_radius=5)
         calendar_frame.pack(fill="x", pady=(0, 10), padx=5)
-        
         # Calendar widget directly embedded in the form
         cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
                        background="#FFFFFF", 
@@ -1036,7 +1036,10 @@ class TimePlanApp(ctk.CTk):
                        headersforeground="white",
                        normalbackground="#FFFFFF",
                        showweeknumbers=False, showothermonthdays=True,
-                       font=("Arial", 10))
+                       font=("Arial", 10),
+                       showmonth=True,
+                       foreground="black")
+        
         if due_date:
             try:
                 cal.selection_set(due_date)
