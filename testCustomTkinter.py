@@ -389,21 +389,172 @@ class TimePlanApp(ctk.CTk):
         self.content.pack_forget()
         self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
         self.clear_content()
-        ctk.CTkLabel(self.content, text="Calendar View", font=ctk.CTkFont(size=24, weight="bold"), text_color="#A85BC2").pack(pady=20)
-        # Add a month/year label above the calendar
-        from datetime import date
-        today = date.today()
-        month_year_label = ctk.CTkLabel(self.content, text=today.strftime("%B %Y"), font=ctk.CTkFont(size=18, weight="bold"), text_color="#A85BC2")
-        month_year_label.pack(pady=(0, 5))
-        cal = Calendar(self.content, selectmode='day', date_pattern='yyyy-mm-dd',
-                       background="white", selectbackground="#C576E0",
-                       othermonthforeground="gray", normalforeground="black",
-                       weekendbackground="white", weekendforeground="#A85BC2",
-                       showweeknumbers=False, showothermonthdays=True,
-                       font=("Arial", 12), headersbackground="#C576E0", 
-                       headersforeground="white",
-                       foreground="black")
-        cal.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Create main calendar container with split view
+        split_frame = ctk.CTkFrame(self.content, fg_color="#FFFFFF", corner_radius=10)
+        split_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Calendar frame on top
+        calendar_frame = ctk.CTkFrame(split_frame, fg_color="transparent")
+        calendar_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Get all tasks from database and organize by date
+        tasks = self.db_manager.get_tasks(user_id=self.current_user_id, filter_type='All Tasks')
+        task_dates = {}
+        ongoing_dates = set()  # Keep track of dates with ongoing tasks
+        
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).date()
+        
+        # Create custom calendar
+        cal = Calendar(calendar_frame, 
+            selectmode='day',
+            date_pattern='yyyy-mm-dd',
+            background="white",
+            selectbackground="#C576E0",
+            othermonthforeground="gray",
+            normalforeground="black",
+            weekendbackground="white",
+            weekendforeground="#A85BC2",
+            showweeknumbers=False,
+            showothermonthdays=True,
+            font=("Arial", 12),
+            headersbackground="#C576E0", 
+            headersforeground="white",
+            foreground="black",
+            borderwidth=0
+        )
+        cal.pack(fill="x")
+
+        # Configure tag for ongoing tasks (must be done before creating events)
+        cal.tag_config('ongoing', background='#F3E6F8')  # Light purple for ongoing tasks
+
+        def create_task_card(task_frame, task):
+            """Helper function to create a task card"""
+            task_frame.bind("<Button-1>", lambda e, tid=task['id']: self.show_task_detail(tid))
+            task_frame.configure(cursor="hand2")
+            
+            title_label = ctk.CTkLabel(
+                task_frame,
+                text=task['title'],
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color="#333333"
+            )
+            title_label.pack(anchor="w", padx=10, pady=(10, 5))
+            
+            if task['description']:
+                desc_label = ctk.CTkLabel(
+                    task_frame,
+                    text=task['description'],
+                    font=ctk.CTkFont(size=12),
+                    text_color="#666666",
+                    wraplength=400
+                )
+                desc_label.pack(anchor="w", padx=10, pady=(0, 5))
+            
+            info_frame = ctk.CTkFrame(task_frame, fg_color="transparent")
+            info_frame.pack(fill="x", padx=10, pady=(0, 10))
+            
+            if task['priority']:
+                priority_label = ctk.CTkLabel(
+                    info_frame,
+                    text=f"Priority: {task['priority']}",
+                    font=ctk.CTkFont(size=12),
+                    text_color="#666666"
+                )
+                priority_label.pack(side="left")
+            
+            category_label = ctk.CTkLabel(
+                info_frame,
+                text=task['category'],
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#666666"
+            )
+            category_label.pack(side="right")
+
+        def update_tasks_list(event=None):
+            """Update the task list when a date is selected"""
+            for widget in split_frame.winfo_children():
+                if widget != calendar_frame:
+                    widget.destroy()
+                    
+            selected_date = cal.get_date()  # This returns date in yyyy-mm-dd format
+            
+            tasks_frame = ctk.CTkScrollableFrame(split_frame, fg_color="transparent")
+            tasks_frame.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            try:
+                date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
+                display_date = date_obj.strftime('%B %d, %Y')
+            
+                date_header = ctk.CTkLabel(
+                    tasks_frame,
+                    text=display_date,
+                    font=ctk.CTkFont(size=18, weight="bold"),
+                    text_color="#6A057F"
+                )
+                date_header.pack(anchor="w", pady=(0, 10))
+                
+                if selected_date in task_dates:
+                    for task in task_dates[selected_date]:
+                        task_frame = ctk.CTkFrame(tasks_frame, fg_color="white", corner_radius=10)
+                        task_frame.pack(fill="x", pady=5)
+                        create_task_card(task_frame, task)
+                else:
+                    no_tasks_label = ctk.CTkLabel(
+                        tasks_frame,
+                        text="No tasks for this date",
+                        font=ctk.CTkFont(size=14),
+                        text_color="#666666"
+                    )
+                    no_tasks_label.pack(pady=20)
+            except ValueError:
+                error_label = ctk.CTkLabel(
+                    tasks_frame,
+                    text="Error displaying tasks: Invalid date format",
+                    font=ctk.CTkFont(size=14),
+                    text_color="red"
+                )
+                error_label.pack(pady=20)
+
+        # Process tasks and set up calendar events
+        for task in tasks:
+            if len(task) == 6:
+                task_id, title, description, priority, due_date, category_name = task
+                if due_date:
+                    try:
+                        task_date = datetime.strptime(due_date, '%Y-%m-%d').date()
+                        # Store task information
+                        if due_date not in task_dates:
+                            task_dates[due_date] = []
+                        task_info = {
+                            'id': task_id,
+                            'title': title,
+                            'description': description,
+                            'category': category_name,
+                            'priority': priority
+                        }
+                        task_dates[due_date].append(task_info)
+                        
+                        # Mark ongoing task dates
+                        if category_name == "On-going":
+                            ongoing_dates.add(task_date)
+                            try:
+                                cal.calevent_create(task_date, "Ongoing Task", "ongoing")
+                            except Exception as e:
+                                print(f"Error creating calendar event: {e}")
+                    except ValueError as e:
+                        print(f"Error processing task date: {e}")
+            else:
+                print(f"Invalid task format: {task}")
+
+        # Set up initial calendar state
+        try:
+            cal.selection_set(current_local_date.strftime('%Y-%m-%d'))
+            update_tasks_list()
+            cal.bind("<<CalendarSelected>>", update_tasks_list)
+        except Exception as e:
+            print(f"Error setting up calendar: {e}")
 
     def show_add_task_page(self):
         self.navbar.pack_forget()
@@ -1030,7 +1181,7 @@ class TimePlanApp(ctk.CTk):
         # Calendar widget directly embedded in the form
         cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
                        background="#FFFFFF", 
-                       selectbackground="#A85BC2", 
+                       selectbackground="#A85BC2",
                        headersbackground="#C576E0",
                        headersforeground="white",
                        normalbackground="#FFFFFF",
@@ -1049,7 +1200,7 @@ class TimePlanApp(ctk.CTk):
         def on_date_selected(event=None):
             selected_date = cal.get_date()
             due_date_var.set(selected_date)
-            
+        
         cal.bind("<<CalendarSelected>>", on_date_selected)
         
         cal.pack(padx=5, pady=5, fill="both", expand=True)
@@ -1222,7 +1373,7 @@ class TimePlanApp(ctk.CTk):
             else:
                 return self.on_going_category_id
         except ValueError:
-            return self.on_going_category_id
+            return self.on_Going_category_id
 
     def show_add_task_dialog(self):
         # Create the popup window
@@ -1277,7 +1428,7 @@ class TimePlanApp(ctk.CTk):
 
         # Calendar Frame
         calendar_frame = ctk.CTkFrame(scroll_container, fg_color="#FFFFFF", corner_radius=5)
-        calendar_frame.pack(fill="x", pady=(0, 15))
+        calendar_frame.pack(fill="x", pady=(0, 15), padx=5)
 
         cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
                       background="#FFFFFF",
