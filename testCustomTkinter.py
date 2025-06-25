@@ -15,8 +15,8 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 class TimePlanApp(ctk.CTk):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.title("TimePlan")
         self.geometry("1200x700")
         self.configure(bg="#F8F3FB")
@@ -199,6 +199,8 @@ class TimePlanApp(ctk.CTk):
 
         self.show_tasks_page('All Tasks')
 
+        self.current_page = "tasks"  # Track current page: "tasks" or "calendar"
+
     def position_collapse_button(self):
         self.update_idletasks()
         current_width = self.sidebar_width if self.sidebar_expanded else self.sidebar_collapsed_width
@@ -219,6 +221,9 @@ class TimePlanApp(ctk.CTk):
 
         # Update the filter buttons
         self.update_filter_buttons(filter_type)
+        
+        # Set current page to tasks
+        self.current_page = "tasks"
 
         # Hide the detail pane if visible when switching task views
         if self.detail_pane_visible:
@@ -341,568 +346,222 @@ class TimePlanApp(ctk.CTk):
                              text_color=title_color, anchor="w").grid(row=2, column=1, padx=(10, 5), pady=(0, 0), sticky="ew")
 
             if category_name:
-                ctk.CTkLabel(task_frame, text=category_name, font=ctk.CTkFont(size=12, weight="bold"),
+                category_label = ctk.CTkLabel(task_frame, text=category_name, font=ctk.CTkFont(size=12, weight="bold"),
                              text_color="#666666", anchor="ne", justify="right"
-                             ).grid(row=0, column=2, padx=10, pady=(10,0), sticky="ne")
-
-            if due_date:
-                try:
-                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                    if due_date_obj == current_local_date:
-                        formatted_date_str = "Due: Today"
-                    elif due_date_obj == (current_local_date + timedelta(days=1)):
-                        formatted_date_str = "Due: Tomorrow"
-                    else:
-                        formatted_date_str = f"Due: {due_date_obj.strftime('%b %d, %Y')}"
-                except ValueError:
-                    formatted_date_str = "Due: Invalid Date"
-
-                ctk.CTkLabel(task_frame, text=formatted_date_str, font=ctk.CTkFont(size=12),
-                             text_color="#666666", anchor="ne", justify="right"
-                             ).grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
-
-    def toggle_task_completion(self, task_id, status_var, current_category_name, current_filter_type):
-        new_category_id = None
-        if status_var.get() == "on": # Task is being marked as Completed
-            if self.completed_category_id:
-                new_category_id = self.completed_category_id
-            else:
-                messagebox.showwarning("Warning", "Could not find 'Completed' category. Task not updated.")
-                status_var.set("off") # Revert checkbox state
-                return
-        else: # Task is being marked as Incomplete
-            if self.on_going_category_id: # Revert to "On-going"
-                new_category_id = self.on_going_category_id
-            else:
-                messagebox.showwarning("Warning", "Could not find 'On-going' category. Task not updated.")
-                status_var.set("on") # Revert checkbox state
-                return
-
-        if self.db_manager.update_task_category(task_id, new_category_id):
-            self.show_tasks_page(current_filter_type) # Refresh the current task view to reflect changes
-        else:
-            messagebox.showerror("Error", "Failed to update task status in database.")
-            status_var.set("off" if status_var.get() == "on" else "on") # Revert checkbox on failure
-
-    def show_calendar_page(self):
-        self.navbar.pack_forget()
-        self.content.pack_forget()
-        self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
-        self.clear_content()
-        
-        # Create main calendar container with split view
-        split_frame = ctk.CTkFrame(self.content, fg_color="#FFFFFF", corner_radius=10)
-        split_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        # Calendar frame on top
-        calendar_frame = ctk.CTkFrame(split_frame, fg_color="transparent")
-        calendar_frame.pack(fill="x", padx=5, pady=5)
-        
-        # Get all tasks from database and organize by date
-        tasks = self.db_manager.get_tasks(user_id=self.current_user_id, filter_type='All Tasks')
-        task_dates = {}
-        ongoing_dates = set()  # Keep track of dates with ongoing tasks
-        
-        philippines_timezone = pytz.timezone('Asia/Manila')
-        current_local_date = datetime.now(philippines_timezone).date()
-        
-        # Create custom calendar
-        cal = Calendar(calendar_frame, 
-            selectmode='day',
-            date_pattern='yyyy-mm-dd',
-            background="white",
-            selectbackground="#C576E0",
-            othermonthforeground="gray",
-            normalforeground="black",
-            weekendbackground="white",
-            weekendforeground="#A85BC2",
-            showweeknumbers=False,
-            showothermonthdays=True,
-            font=("Arial", 12),
-            headersbackground="#C576E0", 
-            headersforeground="white",
-            foreground="black",
-            borderwidth=0
-        )
-        cal.pack(fill="x")
-
-        # Configure tag for ongoing tasks (must be done before creating events)
-        cal.tag_config('ongoing', background='#F3E6F8')  # Light purple for ongoing tasks
-
-        def create_task_card(task_frame, task):
-            """Helper function to create a task card with unified styling"""
-            # Define color constants
-            ONGOING_BG_COLOR = "white"  # Default for uncompleted, non-missed tasks
-            MISSED_BG_COLOR = "#FFCDD2" # Light Red
-            COMPLETED_BG_COLOR = "#C8E6C9" # Light Green
-
-            task_id = task['id']
-            category_name = task['category']
-            due_date = task.get('due_date', None)
-            title = task['title']
-            description = task.get('description', '')
-            priority = task.get('priority', '')
-
-            # Determine task status and colors
-            frame_bg_color = ONGOING_BG_COLOR
-            title_color = "#333333"
-            is_completed_by_category = (category_name == "Completed")
-            is_missed = False
-
-            if not is_completed_by_category and due_date:
-                try:
-                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                    if due_date_obj < current_local_date:
-                        is_missed = True
-                        category_name = "Missed"
-                except ValueError:
-                    pass
-
-            if is_completed_by_category:
-                frame_bg_color = COMPLETED_BG_COLOR
-                title_color = "gray"
-            elif is_missed:
-                frame_bg_color = MISSED_BG_COLOR
-                title_color = "red"
-
-            task_frame.configure(fg_color=frame_bg_color, border_width=1, border_color="#E5C6F2")
-            
-            # Grid configuration for consistent layout
-            task_frame.grid_columnconfigure(0, weight=0)  # For checkbox
-            task_frame.grid_columnconfigure(1, weight=1)  # For main content
-            task_frame.grid_columnconfigure(2, weight=0)  # For category/date
-            task_frame.grid_rowconfigure(0, weight=0)
-            task_frame.grid_rowconfigure(1, weight=0)
-            task_frame.grid_rowconfigure(2, weight=1)
-
-            # Add checkbox for task completion
-            status_var = ctk.StringVar(value="on" if is_completed_by_category else "off")
-            status_checkbox = ctk.CTkCheckBox(
-                task_frame, 
-                text="",
-                variable=status_var,
-                onvalue="on",
-                offvalue="off",
-                command=lambda tid=task_id, svar=status_var, current_cat_name=category_name: self.toggle_task_completion(tid, svar, current_cat_name, "All Tasks")
-            )
-            status_checkbox.grid(row=0, column=0, rowspan=3, padx=(10,0), pady=10, sticky="nsew")
-            
-            # Prevent checkbox clicks from triggering the task detail view
-            def prevent_propagation(e):
-                e.widget.focus_set()
-                return "break"
-            status_checkbox.bind("<Button-1>", prevent_propagation, add="+")
-
-            # Make the entire frame clickable to show task details
-            def on_task_click(event, tid=task_id):
-                self.selected_task = tid
-                self.show_task_detail(tid)
-            task_frame.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-            task_frame.configure(cursor="hand2")
-
-            # Title with priority
-            title_label = ctk.CTkLabel(
-                task_frame,
-                text=title,
-                font=ctk.CTkFont(size=16, weight="bold"),
-                text_color=title_color,
-                anchor="w",
-                wraplength=400
-            )
-            title_label.grid(row=0, column=1, padx=(10, 5), pady=(10,0), sticky="ew")
-            title_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-            title_label.configure(cursor="hand2")
-
-            # Priority
-            if priority:
-                display_priority_text = "⚠️ Urgent" if priority == "Urgent" else "Not urgent"
-                priority_label = ctk.CTkLabel(
-                    task_frame,
-                    text=display_priority_text,
-                    font=ctk.CTkFont(size=14),
-                    text_color=title_color,
-                    anchor="w"
-                )
-                priority_label.grid(row=1, column=1, padx=(10, 5), pady=(0, 5), sticky="ew")
-                priority_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-                priority_label.configure(cursor="hand2")
-
-            # Description
-            if description:
-                desc_label = ctk.CTkLabel(
-                    task_frame,
-                    text=description,
-                    font=ctk.CTkFont(size=12),
-                    text_color=title_color,
-                    wraplength=400,
-                    anchor="nw"
-                )
-                desc_label.grid(row=2, column=1, padx=(10, 5), pady=(0, 10), sticky="new")
-                desc_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-                desc_label.configure(cursor="hand2")
-
-            # Category label
-            category_label = ctk.CTkLabel(
-                task_frame,
-                text=category_name,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#666666",
-                anchor="ne"
-            )
-            category_label.grid(row=0, column=2, padx=10, pady=(10,0), sticky="ne")
-            category_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-            category_label.configure(cursor="hand2")
-
-            # Due date label
-            if due_date:
-                try:
-                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                    if due_date_obj == current_local_date:
-                        formatted_date_str = "Due: Today"
-                    elif due_date_obj == (current_local_date + timedelta(days=1)):
-                        formatted_date_str = "Due: Tomorrow"
-                    else:
-                        formatted_date_str = f"Due: {due_date_obj.strftime('%b %d, %Y')}"
-                except ValueError:
-                    formatted_date_str = "Due: Invalid Date"
-
-                due_date_label = ctk.CTkLabel(
-                    task_frame,
-                    text=formatted_date_str,
-                    font=ctk.CTkFont(size=12),
-                    text_color="#666666",
-                    anchor="ne",
-                    justify="right"
-                )
-                due_date_label.grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
-
-    def toggle_task_completion(self, task_id, status_var, current_category_name, current_filter_type):
-        new_category_id = None
-        if status_var.get() == "on": # Task is being marked as Completed
-            if self.completed_category_id:
-                new_category_id = self.completed_category_id
-            else:
-                messagebox.showwarning("Warning", "Could not find 'Completed' category. Task not updated.")
-                status_var.set("off") # Revert checkbox state
-                return
-        else: # Task is being marked as Incomplete
-            if self.on_going_category_id: # Revert to "On-going"
-                new_category_id = self.on_going_category_id
-            else:
-                messagebox.showwarning("Warning", "Could not find 'On-going' category. Task not updated.")
-                status_var.set("on") # Revert checkbox state
-                return
-
-        if self.db_manager.update_task_category(task_id, new_category_id):
-            self.show_tasks_page(current_filter_type) # Refresh the current task view to reflect changes
-        else:
-            messagebox.showerror("Error", "Failed to update task status in database.")
-            status_var.set("off" if status_var.get() == "on" else "on") # Revert checkbox on failure
-
-    def show_calendar_page(self):
-        self.navbar.pack_forget()
-        self.content.pack_forget()
-        self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
-        self.clear_content()
-        
-        # Create main calendar container with split view
-        split_frame = ctk.CTkFrame(self.content, fg_color="#FFFFFF", corner_radius=10)
-        split_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        # Calendar frame on top
-        calendar_frame = ctk.CTkFrame(split_frame, fg_color="transparent")
-        calendar_frame.pack(fill="x", padx=5, pady=5)
-        
-        # Get all tasks from database and organize by date
-        tasks = self.db_manager.get_tasks(user_id=self.current_user_id, filter_type='All Tasks')
-        task_dates = {}
-        ongoing_dates = set()  # Keep track of dates with ongoing tasks
-        
-        philippines_timezone = pytz.timezone('Asia/Manila')
-        current_local_date = datetime.now(philippines_timezone).date()
-        
-        # Create custom calendar
-        cal = Calendar(calendar_frame, 
-            selectmode='day',
-            date_pattern='yyyy-mm-dd',
-            background="white",
-            selectbackground="#C576E0",
-            othermonthforeground="gray",
-            normalforeground="black",
-            weekendbackground="white",
-            weekendforeground="#A85BC2",
-            showweeknumbers=False,
-            showothermonthdays=True,
-            font=("Arial", 12),
-            headersbackground="#C576E0", 
-            headersforeground="white",
-            foreground="black",
-            borderwidth=0
-        )
-        cal.pack(fill="x")
-
-        # Configure tag for ongoing tasks (must be done before creating events)
-        cal.tag_config('ongoing', background='#F3E6F8')  # Light purple for ongoing tasks
-
-        def create_task_card(task_frame, task):
-            """Helper function to create a task card with unified styling"""
-            # Define color constants
-            ONGOING_BG_COLOR = "white"  # Default for uncompleted, non-missed tasks
-            MISSED_BG_COLOR = "#FFCDD2" # Light Red
-            COMPLETED_BG_COLOR = "#C8E6C9" # Light Green
-
-            task_id = task['id']
-            category_name = task['category']
-            due_date = task.get('due_date', None)
-            title = task['title']
-            description = task.get('description', '')
-            priority = task.get('priority', '')
-
-            # Determine task status and colors
-            frame_bg_color = ONGOING_BG_COLOR
-            title_color = "#333333"
-            is_completed_by_category = (category_name == "Completed")
-            is_missed = False
-
-            if not is_completed_by_category and due_date:
-                try:
-                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                    if due_date_obj < current_local_date:
-                        is_missed = True
-                        category_name = "Missed"
-                except ValueError:
-                    pass
-
-            if is_completed_by_category:
-                frame_bg_color = COMPLETED_BG_COLOR
-                title_color = "gray"
-            elif is_missed:
-                frame_bg_color = MISSED_BG_COLOR
-                title_color = "red"
-
-            task_frame.configure(fg_color=frame_bg_color, border_width=1, border_color="#E5C6F2")
-            
-            # Grid configuration for consistent layout
-            task_frame.grid_columnconfigure(0, weight=0)  # For checkbox
-            task_frame.grid_columnconfigure(1, weight=1)  # For main content
-            task_frame.grid_columnconfigure(2, weight=0)  # For category/date
-            task_frame.grid_rowconfigure(0, weight=0)
-            task_frame.grid_rowconfigure(1, weight=0)
-            task_frame.grid_rowconfigure(2, weight=1)
-
-            # Add checkbox for task completion
-            status_var = ctk.StringVar(value="on" if is_completed_by_category else "off")
-            status_checkbox = ctk.CTkCheckBox(
-                task_frame, 
-                text="",
-                variable=status_var,
-                onvalue="on",
-                offvalue="off",
-                command=lambda tid=task_id, svar=status_var, current_cat_name=category_name: self.toggle_task_completion(tid, svar, current_cat_name, "All Tasks")
-            )
-            status_checkbox.grid(row=0, column=0, rowspan=3, padx=(10,0), pady=10, sticky="nsew")
-            
-            # Prevent checkbox clicks from triggering the task detail view
-            def prevent_propagation(e):
-                e.widget.focus_set()
-                return "break"
-            status_checkbox.bind("<Button-1>", prevent_propagation, add="+")
-
-            # Make the entire frame clickable to show task details
-            def on_task_click(event, tid=task_id):
-                self.selected_task = tid
-                self.show_task_detail(tid)
-            task_frame.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-            task_frame.configure(cursor="hand2")
-
-            # Title with priority
-            title_label = ctk.CTkLabel(
-                task_frame,
-                text=title,
-                font=ctk.CTkFont(size=16, weight="bold"),
-                text_color=title_color,
-                anchor="w",
-                wraplength=400
-            )
-            title_label.grid(row=0, column=1, padx=(10, 5), pady=(10,0), sticky="ew")
-            title_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-            title_label.configure(cursor="hand2")
-
-            # Priority
-            if priority:
-                display_priority_text = "⚠️ Urgent" if priority == "Urgent" else "Not urgent"
-                priority_label = ctk.CTkLabel(
-                    task_frame,
-                    text=display_priority_text,
-                    font=ctk.CTkFont(size=14),
-                    text_color=title_color,
-                    anchor="w"
-                )
-                priority_label.grid(row=1, column=1, padx=(10, 5), pady=(0, 5), sticky="ew")
-                priority_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-                priority_label.configure(cursor="hand2")
-
-            # Description
-            if description:
-                desc_label = ctk.CTkLabel(
-                    task_frame,
-                    text=description,
-                    font=ctk.CTkFont(size=12),
-                    text_color=title_color,
-                    wraplength=400,
-                    anchor="nw"
-                )
-                desc_label.grid(row=2, column=1, padx=(10, 5), pady=(0, 10), sticky="new")
-                desc_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-                desc_label.configure(cursor="hand2")
-
-            # Category label
-            category_label = ctk.CTkLabel(
-                task_frame,
-                text=category_name,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#666666",
-                anchor="ne"
-            )
-            category_label.grid(row=0, column=2, padx=10, pady=(10,0), sticky="ne")
-            category_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-            category_label.configure(cursor="hand2")
-
-            # Due date label
-            if due_date:
-                try:
-                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                    if due_date_obj == current_local_date:
-                        formatted_date_str = "Due: Today"
-                    elif due_date_obj == (current_local_date + timedelta(days=1)):
-                        formatted_date_str = "Due: Tomorrow"
-                    else:
-                        formatted_date_str = f"Due: {due_date_obj.strftime('%b %d, %Y')}"
-                except ValueError:
-                    formatted_date_str = "Due: Invalid Date"
-
-                due_date_label = ctk.CTkLabel(
-                    task_frame,
-                    text=formatted_date_str,
-                    font=ctk.CTkFont(size=12),
-                    text_color="#666666",
-                    anchor="ne",
-                    justify="right"
-                )
-                due_date_label.grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
-
-        def update_tasks_list(event=None):
-            """Update the task list when a date is selected"""
-            for widget in split_frame.winfo_children():
-                if widget != calendar_frame:
-                    widget.destroy()
-                    
-            selected_date = cal.get_date()  # This returns date in yyyy-mm-dd format
-            
-            tasks_frame = ctk.CTkScrollableFrame(split_frame, fg_color="transparent")
-            tasks_frame.pack(fill="both", expand=True, padx=5, pady=5)
-            
-            selected_date_tasks = task_dates.get(selected_date, [])
-            try:
-                date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
-                display_date = date_obj.strftime('%B %d, %Y')
-            except ValueError:
-                display_date = "Invalid Date"
-
-            date_header = ctk.CTkLabel(
-                tasks_frame,
-                text=display_date,
-                font=ctk.CTkFont(size=18, weight="bold"),
-                text_color="#6A057F"
-            )
-            date_header.pack(anchor="w", pady=(0, 10))
-            
-            # Track whether there are active (non-completed) tasks for this date
-            has_active_tasks = False
-            has_completed_tasks = False
-
-            # First show active tasks
-            for task in selected_date_tasks:
-                if task['category'] != "Completed":
-                    has_active_tasks = True
-                    task_frame = ctk.CTkFrame(tasks_frame, fg_color="white", corner_radius=10)
-                    task_frame.pack(fill="x", pady=5, padx=5)
-                    create_task_card(task_frame, task)
-
-            # Then show completed tasks
-            for task in selected_date_tasks:
-                if task['category'] == "Completed":
-                    has_completed_tasks = True
-                    task_frame = ctk.CTkFrame(tasks_frame, fg_color="white", corner_radius=10)
-                    task_frame.pack(fill="x", pady=5, padx=5)
-                    create_task_card(task_frame, task)
-
-            # If no tasks were shown, display no tasks message
-            if not has_active_tasks and not has_completed_tasks:
-                no_tasks_label = ctk.CTkLabel(
-                    tasks_frame,
-                    text="No tasks for this date",
-                    font=ctk.CTkFont(size=14),
-                    text_color="#666666"
-                )
-                no_tasks_label.pack(pady=20)
-
-        # Process tasks and set up calendar events
-        for task in tasks:
-            if len(task) == 6:
-                task_id, title, description, priority, due_date, category_name = task
+                             )
+                category_label.grid(row=0, column=2, padx=10, pady=(10,0), sticky="ne")
+                category_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+                category_label.configure(cursor="hand2")
+                
+                # Due date label (add this for calendar view task cards)
                 if due_date:
                     try:
-                        task_date = datetime.strptime(due_date, '%Y-%m-%d').date()
-                        # Store task information
-                        if due_date not in task_dates:
-                            task_dates[due_date] = []
-                        task_info = {
-                            'id': task_id,
-                            'title': title,
-                            'description': description,
-                            'category': category_name,
-                            'priority': priority,
-                            'due_date': due_date  # Include the due date in task info
-                        }
-                        task_dates[due_date].append(task_info)                          # Configure calendar event appearance based on task status
-                        try:
-                            # First ensure tag configurations exist
-                            for tag, color in [('completed', '#C8E6C9'), ('missed', '#FFCDD2'), ('ongoing', '#F3E6F8')]:
-                                try:
-                                    cal.tag_config(tag, background=color, foreground='black')
-                                except Exception as tag_error:
-                                    print(f"Error configuring tag {tag}: {tag_error}")
+                        due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                        if due_date_obj == current_local_date:
+                            formatted_date_str = "Due: Today"
+                        elif due_date_obj == (current_local_date + timedelta(days=1)):
+                            formatted_date_str = "Due: Tomorrow"
+                        else:
+                            formatted_date_str = f"Due: {due_date_obj.strftime('%b %d, %Y')}"
+                    except ValueError:
+                        formatted_date_str = "Due: Invalid Date"
 
-                            # First check if this is an ongoing task
-                            if category_name == "On-going":
-                                ongoing_dates.add(task_date)
-                                # Only create the event if one doesn't exist for this date
-                                cal.calevent_create(task_date, "Ongoing Task", "ongoing")
-                                print(f"Created ongoing event for {task_date}")
-                            # If it's not ongoing, check if the date is already marked as ongoing
-                            elif task_date not in ongoing_dates:
-                                # If not ongoing, then check other statuses
-                                if category_name == "Completed":
-                                    cal.calevent_create(task_date, "Completed Task", "completed")
-                                    print(f"Created completed event for {task_date}")
-                                elif category_name == "Missed" or (category_name != "Completed" and task_date < current_local_date):
-                                    cal.calevent_create(task_date, "Missed Task", "missed")
-                                    print(f"Created missed event for {task_date}")
-                        except Exception as e:
-                            print(f"Error creating calendar event: {e}")
-                    except ValueError as e:
-                        print(f"Error processing task date: {e}")
+                    due_date_label = ctk.CTkLabel(
+                        task_frame,
+                        text=formatted_date_str,
+                        font=ctk.CTkFont(size=12),
+                        text_color="#666666",
+                        anchor="ne",
+                        justify="right"
+                    )
+                    due_date_label.grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
+                    due_date_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+                    due_date_label.configure(cursor="hand2")
+
+    def toggle_task_completion(self, task_id, status_var, current_category_name, current_filter_type):
+        new_category_id = None
+        if status_var.get() == "on": # Task is being marked as Completed
+            if self.completed_category_id:
+                new_category_id = self.completed_category_id
             else:
-                print(f"Invalid task format: {task}")
+                messagebox.showwarning("Warning", "Could not find 'Completed' category. Task not updated.")
+                status_var.set("off") # Revert checkbox state
+                return
+        else: # Task is being marked as Incomplete
+            if self.on_going_category_id: # Revert to "On-going"
+                new_category_id = self.on_going_category_id
+            else:
+                messagebox.showwarning("Warning", "Could not find 'On-going' category. Task not updated.")
+                status_var.set("on") # Revert checkbox state
+                return
 
-        # Set up initial calendar state
+        if self.db_manager.update_task_category(task_id, new_category_id):
+            # Refresh the view based on current page
+            if self.current_page == "calendar":
+                self.show_calendar_page()
+            else:
+                self.show_tasks_page(current_filter_type)
+        else:
+            messagebox.showerror("Error", "Failed to update task status in database.")
+            status_var.set("off" if status_var.get() == "on" else "on") # Revert checkbox on failure
+
+    def show_calendar_page(self):
+        self.navbar.pack_forget()
+        self.content.pack_forget()
+        self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+        self.clear_content()
+        
+        # Create main calendar container with split view
+        split_frame = ctk.CTkFrame(self.content, fg_color="#FFFFFF", corner_radius=10)
+        split_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Calendar frame on top
+        calendar_frame = ctk.CTkFrame(split_frame, fg_color="transparent")
+        calendar_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Get all tasks from database and organize by date
+        tasks = self.db_manager.get_tasks(user_id=self.current_user_id, filter_type='All Tasks')
+        # Create a dictionary mapping due dates to tasks
+        task_dates = {}
+        
+        # Add a heading for the calendar view
+        ctk.CTkLabel(
+            calendar_frame,
+            text="Calendar View",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(anchor="nw", pady=(0, 10))
+        
+        # Process tasks and organize by date
+        for task in tasks:
+            task_id, title, description, priority, due_date, category_name = task
+            if due_date:
+                # Ensure date format consistency - store as strings
+                date_key = due_date.strip()  # Remove any whitespace
+                if date_key not in task_dates:
+                    task_dates[date_key] = []
+                task_dates[date_key].append({
+                    'id': task_id,
+                    'title': title,
+                    'description': description,
+                    'priority': priority,
+                    'due_date': date_key,
+                    'category': category_name
+                })
+        
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).date()
+        
+        # Create the tasks frame (below calendar) - initially empty
+        tasks_container_frame = ctk.CTkFrame(split_frame, fg_color="transparent")
+        tasks_container_frame.pack(fill="both", expand=True, padx=5, pady=10)
+        
+        # Header for tasks section
+        tasks_header_frame = ctk.CTkFrame(tasks_container_frame, fg_color="transparent")
+        tasks_header_frame.pack(fill="x", pady=(0, 5))
+        
+        selected_date_label = ctk.CTkLabel(
+            tasks_header_frame,
+            text="Select a date to view tasks",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#A85BC2"
+        )
+        selected_date_label.pack(anchor="w")
+        
+        # Create a scrollable frame for tasks
+        tasks_scroll_frame = ctk.CTkScrollableFrame(tasks_container_frame, fg_color="transparent")
+        tasks_scroll_frame.pack(fill="both", expand=True)
+        
+        # Create custom calendar
+        cal = Calendar(calendar_frame, 
+            selectmode='day',
+            date_pattern='yyyy-mm-dd',
+            background="white",
+            selectbackground="#C576E0",
+            othermonthforeground="gray",
+            normalforeground="black",
+            weekendbackground="white",
+            weekendforeground="#A85BC2",
+            showweeknumbers=False,
+            showothermonthdays=True,
+            font=("Arial", 12),
+            headersbackground="#C576E0", 
+            headersforeground="white",
+            foreground="black",
+            borderwidth=0
+        )
+        cal.pack(fill="x")
+
+        # Configure calendar event tag for tasks - use calevent_create's tag format
+        cal.tag_config("task_date", background='#F3E6F8')  # Light purple for task dates
+        
+        # Use the proper method to mark dates with tasks
+        for date_str in task_dates.keys():
+            try:
+                # Parse the date string to a date object
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+                # Mark the date on the calendar using calevent_create
+                cal.calevent_create(date_obj, "Task Due", "task_date")
+            except (ValueError, AttributeError) as e:
+                print(f"Error marking date {date_str}: {str(e)}")
+        
+        # Function to update task display when a date is selected
+        def update_tasks_for_selected_date(event):
+            # Clear existing tasks
+            for widget in tasks_scroll_frame.winfo_children():
+                widget.destroy()
+                
+            # Get the selected date string in yyyy-mm-dd format
+            selected_date = cal.get_date()
+            
+            try:
+                # Format the date for display
+                date_obj = datetime.strptime(selected_date, "%Y-%m-%d").date()
+                if date_obj == current_local_date:
+                    formatted_date = "Today"
+                elif date_obj == current_local_date + timedelta(days=1):
+                    formatted_date = "Tomorrow"
+                else:
+                    formatted_date = date_obj.strftime("%B %d, %Y")
+                
+                # Update the header
+                selected_date_label.configure(text=f"Tasks for {formatted_date}")
+                
+                # Get tasks for the selected date
+                date_tasks = task_dates.get(selected_date, [])
+                
+                if date_tasks:
+                    # Display tasks for the selected date
+                    for task in date_tasks:
+                        task_frame = ctk.CTkFrame(tasks_scroll_frame, corner_radius=10)
+                        task_frame.pack(fill="x", pady=5, padx=5)
+                        self.create_task_card(task_frame, task)
+                else:
+                    # No tasks for this date
+                    no_tasks_label = ctk.CTkLabel(
+                        tasks_scroll_frame,
+                        text=f"No tasks scheduled for this date.",
+                        font=ctk.CTkFont(size=14),
+                        text_color="#6A057F"
+                    )
+                    no_tasks_label.pack(pady=20)
+            except ValueError:
+                # Handle invalid date format
+                selected_date_label.configure(text="Invalid date format")
+        
+        # Bind the date selection event
+        cal.bind("<<CalendarSelected>>", update_tasks_for_selected_date)
+        
+        # Select today's date by default and show tasks for today
+        today_date_str = current_local_date.strftime('%Y-%m-%d')
         try:
-            cal.selection_set(current_local_date.strftime('%Y-%m-%d'))
-            update_tasks_list()
-            cal.bind("<<CalendarSelected>>", update_tasks_list)
+            cal.selection_set(today_date_str)
+            # Call the update function to show today's tasks
+            self.after(100, lambda: update_tasks_for_selected_date(None))
         except Exception as e:
-            print(f"Error setting up calendar: {e}")
+            print(f"Error setting initial date: {str(e)}")
+        
+        self.current_page = "calendar"  # Set current page to calendar
 
     def show_add_task_page(self):
         self.navbar.pack_forget()
@@ -1538,18 +1197,17 @@ class TimePlanApp(ctk.CTk):
                        showmonth=True,
                        foreground="black")
         
-        if due_date:
-            try:
-                cal.selection_set(due_date)
-            except:
-                pass
-        
-        # Function to update the entry when a date is selected
         def on_date_selected(event=None):
             selected_date = cal.get_date()
             due_date_var.set(selected_date)
         
         cal.bind("<<CalendarSelected>>", on_date_selected)
+        
+        if due_date:
+            try:
+                cal.selection_set(due_date)
+            except:
+                pass
         
         cal.pack(padx=5, pady=5, fill="both", expand=True)
         
@@ -1612,6 +1270,7 @@ class TimePlanApp(ctk.CTk):
             height=35        )
         cancel_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
     
+       
     def save_task_edits(self, task_id, title, description, priority, due_date, category_name):
         if not title:
             messagebox.showwarning("Warning", "Task title cannot be empty.")
@@ -1655,14 +1314,17 @@ class TimePlanApp(ctk.CTk):
         if success:
             # Show success popup
             messagebox.showinfo("Success", "Task updated successfully!")
-              # Get the current filter
-            current_filter = self.get_current_filter()
             
-            # Refresh the task list with the current filter
-            self.show_tasks_page(current_filter)
+            # Determine which page to return to based on where the user came from
+            if self.current_page == "calendar":
+                # If user was on calendar page, return there
+                self.show_calendar_page()
+            else:
+                # Otherwise, return to task list with the current filter
+                current_filter = self.get_current_filter()
+                self.show_tasks_page(current_filter)
             
-            # Show updated task details if the task is still visible in the current filter
-            # We'll try to show the task, and if it's not in the current filter, the detail pane will be hidden
+            # Show updated task details
             self.show_task_detail(task_id)
         else:
             messagebox.showerror("Error", "Failed to update task.")
@@ -1685,8 +1347,13 @@ class TimePlanApp(ctk.CTk):
                 # First hide the detail pane since the task no longer exists
                 self.hide_task_detail()
                 
-                # Refresh the task list with the current filter
-                self.show_tasks_page(current_filter)
+                # Determine which page to return to based on where the user came from
+                if self.current_page == "calendar":
+                    # If user was on calendar page, return there
+                    self.show_calendar_page()
+                else:
+                    # Otherwise, refresh the task list with the current filter
+                    self.show_tasks_page(current_filter)
             else:
                 messagebox.showerror("Error", "Failed to delete task.")
 
@@ -1784,8 +1451,7 @@ class TimePlanApp(ctk.CTk):
                       headersbackground="#C576E0",
                       headersforeground="white",
                       normalbackground="#FFFFFF",
-                      showweeknumbers=False,
-                      showothermonthdays=True,
+                      showweeknumbers=False, showothermonthdays=True,
                       font=("Arial", 10),
                       showmonth=True,
                       foreground="black")
@@ -1972,7 +1638,169 @@ class TimePlanApp(ctk.CTk):
         
         # Set focus to search entry
         search_entry.focus_set()
+        
+    def create_task_card(self, task_frame, task):
+        """Helper function to create a task card with unified styling"""
+        # Define color constants
+        ONGOING_BG_COLOR = "white"  # Default for uncompleted, non-missed tasks
+        MISSED_BG_COLOR = "#FFCDD2" # Light Red
+        COMPLETED_BG_COLOR = "#C8E6C9" # Light Green
 
+        task_id = task['id']
+        category_name = task['category']
+        due_date = task.get('due_date', None)
+        title = task['title']
+        description = task.get('description', '')
+        priority = task.get('priority', '')
+
+        # Get current date for comparison
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).date()
+
+        # Determine task status and colors
+        frame_bg_color = ONGOING_BG_COLOR
+        title_color = "#333333"
+        is_completed_by_category = (category_name == "Completed")
+        is_missed = False
+
+        if not is_completed_by_category and due_date:
+            try:
+                due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                if due_date_obj < current_local_date:
+                    is_missed = True
+                    category_name = "Missed"
+            except ValueError:
+                pass
+
+        if is_completed_by_category:
+            frame_bg_color = COMPLETED_BG_COLOR
+            title_color = "gray"
+        elif is_missed:
+            frame_bg_color = MISSED_BG_COLOR
+            title_color = "red"
+        
+        task_frame.configure(fg_color=frame_bg_color, border_width=1, border_color="#E5C6F2")
+        
+        # Grid configuration for consistent layout
+        task_frame.grid_columnconfigure(0, weight=0)  # For checkbox
+        task_frame.grid_columnconfigure(1, weight=1)  # For main content
+        task_frame.grid_columnconfigure(2, weight=0)  # For category/date
+        task_frame.grid_rowconfigure(0, weight=0)
+        task_frame.grid_rowconfigure(1, weight=0)
+        task_frame.grid_rowconfigure(2, weight=1)
+
+        # Add checkbox for task completion
+        status_var = ctk.StringVar(value="on" if is_completed_by_category else "off")
+        status_checkbox = ctk.CTkCheckBox(
+            task_frame, 
+            text="",
+            variable=status_var,
+            onvalue="on",
+            offvalue="off",
+            command=lambda tid=task_id, svar=status_var, current_cat_name=category_name: self.toggle_task_completion(tid, svar, current_cat_name, "All Tasks")
+        )
+        status_checkbox.grid(row=0, column=0, rowspan=3, padx=(10,0), pady=10, sticky="nsew")
+        
+        # Prevent checkbox clicks from triggering the task detail view
+        def prevent_propagation(e):
+            e.widget.focus_set()
+            return "break"
+        status_checkbox.bind("<Button-1>", prevent_propagation, add="+")
+
+        # Make the entire frame clickable to show task details
+        def on_task_click(event, tid=task_id):
+            self.selected_task = tid
+            self.show_task_detail(tid)
+        task_frame.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+        task_frame.configure(cursor="hand2")
+
+        # Title with priority
+        title_label = ctk.CTkLabel(
+            task_frame,
+            text=title,
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=title_color,
+            anchor="w",
+            wraplength=400
+        )
+        title_label.grid(row=0, column=1, padx=(10, 5), pady=(10,0), sticky="ew")
+        title_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+        title_label.configure(cursor="hand2")
+
+        # Priority
+        if priority:
+            display_priority_text = "⚠️ Urgent" if priority == "Urgent" else "Not urgent"
+            priority_label = ctk.CTkLabel(
+                task_frame,
+                text=display_priority_text,
+                font=ctk.CTkFont(size=14),
+                text_color=title_color,
+                anchor="w"
+            )
+            priority_label.grid(row=1, column=1, padx=(10, 5), pady=(0, 5), sticky="ew")
+            priority_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+            priority_label.configure(cursor="hand2")
+
+        # Description
+        if description:
+            desc_label = ctk.CTkLabel(
+                task_frame,
+                text=description,
+                font=ctk.CTkFont(size=12),
+                text_color=title_color,
+                wraplength=400,
+                anchor="nw"
+            )
+            desc_label.grid(row=2, column=1, padx=(10, 5), pady=(0, 10), sticky="new")
+            desc_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+            desc_label.configure(cursor="hand2")
+
+        # Category label
+        category_label = ctk.CTkLabel(
+            task_frame,
+            text=category_name,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#666666",
+            anchor="ne"
+        )
+        # Category label
+        category_label = ctk.CTkLabel(
+            task_frame,
+            text=category_name,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#666666",
+            anchor="ne"
+        )
+        category_label.grid(row=0, column=2, padx=10, pady=(10,0), sticky="ne")
+        category_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+        category_label.configure(cursor="hand2")
+        
+        # Due date label
+        if due_date:
+            try:
+                due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                if due_date_obj == current_local_date:
+                    formatted_date_str = "Due: Today"
+                elif due_date_obj == (current_local_date + timedelta(days=1)):
+                    formatted_date_str = "Due: Tomorrow"
+                else:
+                    formatted_date_str = f"Due: {due_date_obj.strftime('%b %d, %Y')}"
+            except ValueError:
+                formatted_date_str = "Due: Invalid Date"
+
+            due_date_label = ctk.CTkLabel(
+                task_frame,
+                text=formatted_date_str,
+                font=ctk.CTkFont(size=12),
+                text_color="#666666",
+                anchor="ne",
+                justify="right"
+            )
+            due_date_label.grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
+            due_date_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+            due_date_label.configure(cursor="hand2")
+            
+# Application entry point
 if __name__ == "__main__":
     app = TimePlanApp()
     app.mainloop()
