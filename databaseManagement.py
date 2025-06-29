@@ -85,16 +85,38 @@ class DatabaseManager:
             );
         """)
 
+        # Create priority table
+        self._execute_query("""
+            CREATE TABLE IF NOT EXISTS priority (
+                priority_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                priority_name TEXT    NOT NULL UNIQUE,
+                priority_level INTEGER NOT NULL
+            );
+        """)
+        
+        # Insert default priorities if they don't exist
+        default_priorities = [
+            ("Urgent", 1),
+            ("Not urgent", 2)
+        ]
+        for priority_name, level in default_priorities:
+            self._execute_query(
+                "INSERT OR IGNORE INTO priority (priority_name, priority_level) VALUES (?, ?)",
+                (priority_name, level)
+            )
+
         # Create tasks table (STATUS COLUMN REMOVED IN PREVIOUS STEP, REMAINS GONE)
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 title       TEXT    NOT NULL,
                 description TEXT,
-                priority    TEXT,
-                due_date    TEXT,
+                priority_id INTEGER REFERENCES priority (priority_id),
+                due_date    DATE,
                 user_id     INTEGER NOT NULL DEFAULT 1,
-                category_id INTEGER REFERENCES task_category (category_id) NOT NULL
+                category_id INTEGER REFERENCES task_category (category_id) NOT NULL,
+                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
 
@@ -126,17 +148,24 @@ class DatabaseManager:
 
     # --- CRUD operations for Tasks ---
     # add_task method remains unchanged as it never had a 'status' argument after previous removal
-    def add_task(self, user_id, title, description=None, priority=None, due_date=None, category_id=1):
+    def add_task(self, user_id, title, description=None, priority_name=None, due_date=None, category_id=1):
         """Add a new task and return the new task ID on success."""
         description = description if description else None
-        priority = priority if priority else None
         due_date = due_date if due_date else None # due_date should be 'YYYY-MM-DD' format
+        
+        # Convert priority name to priority_id
+        priority_id = None
+        if priority_name:
+            priority_id = self.get_priority_id_by_name(priority_name)
+            if not priority_id:
+                # Default to "Not urgent" if invalid priority name
+                priority_id = self.get_priority_id_by_name("Not urgent")
 
         query = """
-            INSERT INTO tasks (user_id, title, description, priority, due_date, category_id)
+            INSERT INTO tasks (user_id, title, description, priority_id, due_date, category_id)
             VALUES (?, ?, ?, ?, ?, ?)
         """
-        success = self._execute_query(query, (user_id, title, description, priority, due_date, category_id))
+        success = self._execute_query(query, (user_id, title, description, priority_id, due_date, category_id))
         
         if success:
             # Get the ID of the last inserted row
@@ -145,8 +174,12 @@ class DatabaseManager:
         return None
         
     def get_tasks(self, user_id, filter_type='All Tasks'):
-        query = "SELECT t.id, t.title, t.description, t.priority, t.due_date, tc.category_name " \
-                "FROM tasks t JOIN task_category tc ON t.category_id = tc.category_id " \
+        query = """
+            SELECT t.id, t.title, t.description, p.priority_name, t.due_date, tc.category_name
+            FROM tasks t 
+            JOIN task_category tc ON t.category_id = tc.category_id 
+            LEFT JOIN priority p ON t.priority_id = p.priority_id
+        """ \
                 "WHERE t.user_id = ? "
         params = [user_id]
         
@@ -198,7 +231,7 @@ class DatabaseManager:
         # Tasks with NULL due_date will be at the end
         if filter_type in ['All Tasks', 'On-going', 'Today', 'Next 7 Days']:
             # For tasks that need closest due date first
-            query += "ORDER BY CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END, t.due_date ASC, t.priority DESC"
+            query += "ORDER BY CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END, t.due_date ASC, p.priority_level ASC"
         elif filter_type in ['Completed', 'Missed']:
             # For completed/missed tasks, sort by date (could be oldest first or newest first)
             query += "ORDER BY t.due_date DESC" # Most recently completed/missed first
@@ -215,8 +248,10 @@ class DatabaseManager:
             updates.append("description = ?")
             params.append(description if description else None)
         if priority is not None:
-            updates.append("priority = ?")
-            params.append(priority)
+            priority_id = self.get_priority_id_by_name(priority)
+            if priority_id:
+                updates.append("priority_id = ?")
+                params.append(priority_id)
         if due_date is not None:
             updates.append("due_date = ?")
             params.append(due_date if due_date else None)
@@ -264,115 +299,81 @@ class DatabaseManager:
         query = "SELECT id, username, password FROM users WHERE username = ?"
         return self._fetch_one(query, (username,))
 
-    def update_task(self, task_id, title, description, priority, due_date, category_id):
+    def update_task(self, task_id, title, description, priority_name, due_date, category_id):
         """Update all fields of a task at once."""
+        # Convert priority name to priority_id
+        priority_id = None
+        if priority_name:
+            priority_id = self.get_priority_id_by_name(priority_name)
+            if not priority_id:
+                priority_id = self.get_priority_id_by_name("Not urgent")
+
+        # Parse the due date
+        due_date_obj = self._parse_date(due_date)
+        formatted_date = self._format_date(due_date_obj)
+
         query = """
             UPDATE tasks 
-            SET title = ?, description = ?, priority = ?, due_date = ?, category_id = ?
+            SET title = ?, 
+                description = ?, 
+                priority_id = ?, 
+                due_date = ?, 
+                category_id = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """
-        return self._execute_query(query, (title, description, priority, due_date, category_id, task_id))
+        return self._execute_query(query, (title, description, priority_id, formatted_date, category_id, task_id))
 
-# Example usage (for testing the DatabaseManager separately)
+    # --- Priority Management Methods ---
+    def get_priority_id_by_name(self, priority_name):
+        """Get priority ID from priority name."""
+        query = "SELECT priority_id FROM priority WHERE priority_name = ?"
+        result = self._fetch_one(query, (priority_name,))
+        return result[0] if result else None
+
+    def get_priority_name_by_id(self, priority_id):
+        """Get priority name from priority ID."""
+        query = "SELECT priority_name FROM priority WHERE priority_id = ?"
+        result = self._fetch_one(query, (priority_id,))
+        return result[0] if result else None
+
+    def get_all_priorities(self):
+        """Get all priority names ordered by priority level."""
+        query = "SELECT priority_name FROM priority ORDER BY priority_level"
+        results = self._fetch_all(query)
+        return [row[0] for row in results] if results else ["Not urgent", "Urgent"]  # Fallback to defaults if query fails
+
+    def _get_ph_timezone(self):
+        """Get Philippines timezone"""
+        return pytz.timezone('Asia/Manila')
+    
+    def _get_current_local_date(self):
+        """Get current date in PH timezone"""
+        ph_tz = self._get_ph_timezone()
+        return datetime.now(ph_tz).date()
+    
+    def _parse_date(self, date_str):
+        """Convert string date to datetime.date object"""
+        if not date_str:
+            return None
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            print(f"Invalid date format: {date_str}. Expected format: YYYY-MM-DD")
+            return None
+            
+    def _format_date(self, date_obj):
+        """Convert datetime.date object to string"""
+        if not date_obj:
+            return None
+        try:
+            return date_obj.strftime('%Y-%m-%d')
+        except AttributeError:
+            print(f"Invalid date object: {date_obj}")
+            return None
+
+# For testing the DatabaseManager separately
 if __name__ == '__main__':
     db_manager = DatabaseManager()
-
-    default_user_info = db_manager.get_user_by_username("default_user")
-    user_id = default_user_info[0] if default_user_info else 1
-
-    # Get category IDs by name
-    # Ensure these category names match your database exactly
-    on_going_cat_id = db_manager.get_category_id_by_name("On-going")
-    missed_cat_id = db_manager.get_category_id_by_name("Missed")
-    completed_cat_id = db_manager.get_category_id_by_name("Completed")
-
-    print("\n--- Adding some sample tasks ---")
-    # Assign tasks to 'On-going' or 'Missed' based on due date
-    # For tasks without a specific category in mind, 'On-going' is a good default
-    
-    # Task for today or future (On-going)
-    db_manager.add_task(user_id, "Buy groceries", "Milk, eggs, bread", "Urgent", "2025-06-21", on_going_cat_id)
-    db_manager.add_task(user_id, "Call mom", "Check in on her", "Not urgent", "2025-06-20", on_going_cat_id)
-    db_manager.add_task(user_id, "Read a book", "Chapter 5", "Not urgent", None, on_going_cat_id) # No due date
-
-    # Task for a past date (Missed)
-    db_manager.add_task(user_id, "Schedule dentist appointment", None, "Not urgent", "2025-06-18", missed_cat_id) 
-
-    # Add a task that starts as "Completed"
-    if completed_cat_id:
-        db_manager.add_task(user_id, "Submit expense report", "Q2 expenses", "Not urgent", "2025-06-15", completed_cat_id)
-        print("Added 'Submit expense report' directly to Completed category.")
-
-    print("\n--- All Tasks ---")
-    all_tasks = db_manager.get_tasks(user_id, 'All Tasks')
-    for task in all_tasks:
-        print(task)
-
-    print("\n--- Today's Tasks (excluding completed) ---")
-    today_tasks = db_manager.get_tasks(user_id, 'Today')
-    for task in today_tasks:
-        print(task)
-    
-    print("\n--- Next 7 Days Tasks (excluding completed) ---")
-    next_7_tasks = db_manager.get_tasks(user_id, 'Next 7 Days')
-    for task in next_7_tasks:
-        print(task)
-
-    print("\n--- On-going Tasks (excluding completed) ---")
-    ongoing_tasks = db_manager.get_tasks(user_id, 'On-going')
-    for task in ongoing_tasks:
-        print(task)
-
-    print("\n--- Completed Tasks (based on category) ---")
-    completed_tasks = db_manager.get_tasks(user_id, 'Completed')
-    for task in completed_tasks:
-        print(task)
-
-    print("\n--- Missed Tasks (excluding completed) ---")
-    missed_tasks = db_manager.get_tasks(user_id, 'Missed')
-    for task in missed_tasks:
-        print(task)
-    
-    # --- Test updating category to mark as complete/incomplete ---
-    print("\n--- Marking 'Buy groceries' as Completed ---")
-    task_to_mark_id = None
-    for task in all_tasks:
-        if task[1] == "Buy groceries":
-            task_to_mark_id = task[0]
-            break
-    
-    if task_to_mark_id and completed_cat_id:
-        db_manager.update_task_category(task_to_mark_id, completed_cat_id)
-        print(f"Task ID {task_to_mark_id} ('Buy groceries') marked as Completed.")
-        print("\n--- All Tasks (after marking 'Buy groceries' as completed) ---")
-        for task in db_manager.get_tasks(user_id, 'All Tasks'):
-            print(task)
-        print("\n--- Completed Tasks (after marking 'Buy groceries' as completed) ---")
-        for task in db_manager.get_tasks(user_id, 'Completed'):
-            print(task)
-    else:
-        print("Could not find 'Buy groceries' task or 'Completed' category.")
-
-    # --- Test marking 'Submit expense report' as Incomplete (moving to On-going) ---
-    print("\n--- Marking 'Submit expense report' as Incomplete (moving to On-going) ---")
-    task_to_unmark_id = None
-    # Re-fetch all tasks to get current IDs
-    current_all_tasks = db_manager.get_tasks(user_id, 'All Tasks')
-    for task in current_all_tasks:
-        if task[1] == "Submit expense report":
-            task_to_unmark_id = task[0]
-            break
-    
-    if task_to_unmark_id and on_going_cat_id:
-        db_manager.update_task_category(task_to_unmark_id, on_going_cat_id)
-        print(f"Task ID {task_to_unmark_id} ('Submit expense report') marked as Incomplete (moved to On-going).")
-        print("\n--- All Tasks (after marking 'Submit expense report' as incomplete) ---")
-        for task in db_manager.get_tasks(user_id, 'All Tasks'):
-            print(task)
-        print("\n--- Completed Tasks (after marking 'Submit expense report' as incomplete) ---")
-        for task in db_manager.get_tasks(user_id, 'Completed'):
-            print(task)
-    else:
-        print("Could not find 'Submit expense report' task or 'On-going' category.")
-
+    print("Database initialized successfully.")
     db_manager._close()

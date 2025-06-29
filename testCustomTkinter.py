@@ -1038,12 +1038,12 @@ class TimePlanApp(ctk.CTk):
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
         
-        priority_text = priority
+        priority_text = f"⚠️ {priority}" if priority == "Urgent" else priority
         ctk.CTkLabel(
             fields_frame,
             text=priority_text,
             font=ctk.CTkFont(size=16),
-            text_color="#333333"
+            text_color="#FF5252" if priority == "Urgent" else "#333333"
         ).pack(anchor="w", pady=(0, 10))
         
         # Description
@@ -1101,9 +1101,10 @@ class TimePlanApp(ctk.CTk):
     def get_task_by_id(self, task_id):
         # Query the database for a specific task
         query = """
-            SELECT t.id, t.title, t.description, t.priority, t.due_date, tc.category_name 
+            SELECT t.id, t.title, t.description, p.priority_name, t.due_date, tc.category_name 
             FROM tasks t 
             JOIN task_category tc ON t.category_id = tc.category_id 
+            LEFT JOIN priority p ON t.priority_id = p.priority_id
             WHERE t.id = ?
         """
         result = self.db_manager._fetch_one(query, (task_id,))
@@ -1171,7 +1172,8 @@ class TimePlanApp(ctk.CTk):
             form_frame, 
             text="Due Date:", 
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"        ).pack(anchor="w", pady=(5, 0))
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
         
         # Date entry and calendar in the same frame
         due_date_var = ctk.StringVar(value=due_date if due_date else "")
@@ -1219,8 +1221,9 @@ class TimePlanApp(ctk.CTk):
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
         
-        priority_menu = ctk.CTkOptionMenu(form_frame, values=["Urgent", "Not urgent"])
-        priority_menu.set(priority if priority in ["Urgent", "Not urgent"] else "Not urgent")
+        all_priorities = self.get_all_priorities()
+        priority_menu = ctk.CTkOptionMenu(form_frame, values=all_priorities)
+        priority_menu.set(priority if priority in all_priorities else all_priorities[0])
         priority_menu.pack(anchor="w", pady=(0, 10), fill="x")
         
         # Description
@@ -1431,8 +1434,8 @@ class TimePlanApp(ctk.CTk):
 
         # Priority
         ctk.CTkLabel(scroll_container, text="Priority:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6A057F").pack(anchor="w")
-        priority_menu = ctk.CTkOptionMenu(scroll_container, values=["Not urgent", "Urgent"])
-        priority_menu.set("Not urgent")
+        priority_menu = ctk.CTkOptionMenu(scroll_container, values=self.get_all_priorities())
+        priority_menu.set(self.get_all_priorities()[0])  # Set first priority as default
         priority_menu.pack(fill="x", pady=(0, 15))
 
         # Due Date
@@ -1729,12 +1732,13 @@ class TimePlanApp(ctk.CTk):
 
         # Priority
         if priority:
-            display_priority_text = "⚠️ Urgent" if priority == "Urgent" else "Not urgent"
+            # Show warning icon only for Urgent priority
+            display_priority_text = f"⚠️ {priority}" if priority == "Urgent" else priority
             priority_label = ctk.CTkLabel(
                 task_frame,
                 text=display_priority_text,
                 font=ctk.CTkFont(size=14),
-                text_color=title_color,
+                text_color="#FF5252" if priority == "Urgent" else title_color,
                 anchor="w"
             )
             priority_label.grid(row=1, column=1, padx=(10, 5), pady=(0, 5), sticky="ew")
@@ -1800,6 +1804,17 @@ class TimePlanApp(ctk.CTk):
             due_date_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
             due_date_label.configure(cursor="hand2")
             
+    def get_all_priorities(self):
+        """Get all priorities from the database."""
+        query = "SELECT priority_name FROM priority ORDER BY priority_level"
+        results = self.db_manager._fetch_all(query)
+        return [priority[0] for priority in results] if results else ["Not urgent", "Urgent"]  # Fallback defaults
+        
+    def get_priority_name_by_id(self, priority_id):
+        """Get priority name from id."""
+        query = "SELECT priority_name FROM priority WHERE priority_id = ?"
+        result = self.db_manager._fetch_one(query, (priority_id,))
+        return result[0] if result else "Not urgent"  # Default fallback
 # Application entry point
 if __name__ == "__main__":
     app = TimePlanApp()
