@@ -71,7 +71,7 @@ class DatabaseManager:
         # Create users table
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS users (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 username    TEXT    UNIQUE NOT NULL,
                 password    TEXT    NOT NULL
             );
@@ -108,8 +108,8 @@ class DatabaseManager:
         # Create tasks table (STATUS COLUMN REMOVED IN PREVIOUS STEP, REMAINS GONE)
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS tasks (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                title       TEXT    NOT NULL,
+                task_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_title       TEXT    NOT NULL,
                 description TEXT,
                 priority_id INTEGER REFERENCES priority (priority_id),
                 due_date    DATE,
@@ -123,19 +123,19 @@ class DatabaseManager:
         # Create recurring_tasks table (No status column here either)
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS recurring_tasks (
-                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-                title                 TEXT    NOT NULL,
+                rtask_id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                rtask_title                 TEXT    NOT NULL,
                 description           TEXT,
                 start_date            TEXT,
                 recurrence_pattern    TEXT    NOT NULL,
                 last_completed_date TEXT,
                 user_id               INTEGER NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users (id)
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
             );
         """)
         
         # Add a default user if none exists (for testing/initial setup)
-        if not self._fetch_one("SELECT * FROM users WHERE id = 1"):
+        if not self._fetch_one("SELECT * FROM users WHERE user_id = 1"):
             self.add_user("default_user", "password123")
         
         # Add default categories: "On-going", "Missed", "Completed"
@@ -148,7 +148,7 @@ class DatabaseManager:
 
     # --- CRUD operations for Tasks ---
     # add_task method remains unchanged as it never had a 'status' argument after previous removal
-    def add_task(self, user_id, title, description=None, priority_name=None, due_date=None, category_id=1):
+    def add_task(self, user_id, task_title, description=None, priority_name=None, due_date=None, category_id=1):
         """Add a new task and return the new task ID on success."""
         description = description if description else None
         due_date = due_date if due_date else None # due_date should be 'YYYY-MM-DD' format
@@ -162,10 +162,10 @@ class DatabaseManager:
                 priority_id = self.get_priority_id_by_name("Not urgent")
 
         query = """
-            INSERT INTO tasks (user_id, title, description, priority_id, due_date, category_id)
+            INSERT INTO tasks (user_id, task_title, description, priority_id, due_date, category_id)
             VALUES (?, ?, ?, ?, ?, ?)
         """
-        success = self._execute_query(query, (user_id, title, description, priority_id, due_date, category_id))
+        success = self._execute_query(query, (user_id, task_title, description, priority_id, due_date, category_id))
         
         if success:
             # Get the ID of the last inserted row
@@ -175,7 +175,7 @@ class DatabaseManager:
         
     def get_tasks(self, user_id, filter_type='All Tasks'):
         query = """
-            SELECT t.id, t.title, t.description, p.priority_name, t.due_date, tc.category_name
+            SELECT t.task_id, t.task_title, t.description, p.priority_name, t.due_date, tc.category_name
             FROM tasks t 
             JOIN task_category tc ON t.category_id = tc.category_id 
             LEFT JOIN priority p ON t.priority_id = p.priority_id
@@ -240,12 +240,12 @@ class DatabaseManager:
         
         return self._fetch_all(query, params)
 
-    def update_task_details(self, task_id, title=None, description=None, priority=None, due_date=None, category_id=None):
+    def update_task_details(self, task_id, task_title=None, description=None, priority=None, due_date=None, category_id=None):
         updates = []
         params = []
-        if title is not None:
-            updates.append("title = ?")
-            params.append(title)
+        if task_title is not None:
+            updates.append("task_title = ?")
+            params.append(task_title)
         if description is not None:
             updates.append("description = ?")
             params.append(description if description else None)
@@ -265,17 +265,17 @@ class DatabaseManager:
             print("No details to update.")
             return False
 
-        query = f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?"
+        query = f"UPDATE tasks SET {', '.join(updates)} WHERE task_id = ?"
         params.append(task_id)
         return self._execute_query(query, tuple(params))
 
     # New method to update a task's category (for "completing" or "uncompleting" tasks)
     def update_task_category(self, task_id, new_category_id):
-        query = "UPDATE tasks SET category_id = ? WHERE id = ?"
+        query = "UPDATE tasks SET category_id = ? WHERE task_id = ?"
         return self._execute_query(query, (new_category_id, task_id))
 
     def delete_task(self, task_id):
-        query = "DELETE FROM tasks WHERE id = ?"
+        query = "DELETE FROM tasks WHERE task_id = ?"
         return self._execute_query(query, (task_id,))
 
     # --- CRUD operations for Task Categories ---
@@ -298,10 +298,10 @@ class DatabaseManager:
         return self._execute_query(query, (username, password))
 
     def get_user_by_username(self, username):
-        query = "SELECT id, username, password FROM users WHERE username = ?"
+        query = "SELECT user_id, username, password FROM users WHERE username = ?"
         return self._fetch_one(query, (username,))
 
-    def update_task(self, task_id, title, description, priority_name, due_date, category_id):
+    def update_task(self, task_id, task_title, description, priority_name, due_date, category_id):
         """Update all fields of a task at once."""
         # Convert priority name to priority_id
         priority_id = None
@@ -316,15 +316,15 @@ class DatabaseManager:
 
         query = """
             UPDATE tasks 
-            SET title = ?, 
+            SET task_title = ?, 
                 description = ?, 
                 priority_id = ?, 
                 due_date = ?, 
                 category_id = ?,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
+            WHERE task_id = ?
         """
-        return self._execute_query(query, (title, description, priority_id, formatted_date, category_id, task_id))
+        return self._execute_query(query, (task_title, description, priority_id, formatted_date, category_id, task_id))
 
     # --- Priority Management Methods ---
     def get_priority_id_by_name(self, priority_name):
@@ -405,32 +405,32 @@ class DatabaseManager:
     def get_recurring_tasks(self, user_id):
         """Get all recurring tasks for a user."""
         query = """
-            SELECT id, title, description, start_date, recurrence_pattern, last_completed_date
+            SELECT rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date
             FROM recurring_tasks
             WHERE user_id = ?
             ORDER BY start_date
         """
         return self._fetch_all(query, (user_id,))
 
-    def add_recurring_task(self, user_id, title, description, start_date, recurrence_pattern):
+    def add_recurring_task(self, user_id, rtask_title, description, start_date, recurrence_pattern):
         """Add a new recurring task."""
         query = """
-            INSERT INTO recurring_tasks (user_id, title, description, start_date, recurrence_pattern)
+            INSERT INTO recurring_tasks (user_id, rtask_title, description, start_date, recurrence_pattern)
             VALUES (?, ?, ?, ?, ?)
         """
-        if self._execute_query(query, (user_id, title, description, start_date, recurrence_pattern)):
+        if self._execute_query(query, (user_id, rtask_title, description, start_date, recurrence_pattern)):
             result = self._fetch_one("SELECT last_insert_rowid()")
             return result[0] if result else None
         return None
         
-    def update_recurring_task_completion(self, task_id, completed_date):
+    def update_recurring_task_completion(self, rtask_id, completed_date):
         """Update the last completion date of a recurring task."""
         query = """
             UPDATE recurring_tasks
             SET last_completed_date = ?
-            WHERE id = ?
+            WHERE rtask_id = ?
         """
-        return self._execute_query(query, (completed_date, task_id))
+        return self._execute_query(query, (completed_date, rtask_id))
 
 # For testing the DatabaseManager separately
 if __name__ == '__main__':

@@ -108,7 +108,7 @@ def GetTasksFiltered(user_id, category_filter=None, priority_filter=None):
 def DeleteTask(taskId, user_id):
     conn = Connect()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM tasks WHERE id = ? AND user_id = ?', (taskId, user_id))
+    cursor.execute('DELETE FROM tasks WHERE task_id = ? AND user_id = ?', (taskId, user_id))
     conn.commit()
     conn.close()
 
@@ -118,7 +118,7 @@ def UpdateTask(taskId, **kwargs):
     fields = ', '.join([f"{key}=?" for key in kwargs])
     values = list(kwargs.values())
     values.append(taskId)
-    cursor.execute(f'UPDATE tasks SET {fields} WHERE id = ?', values)
+    cursor.execute(f'UPDATE tasks SET {fields} WHERE task_id = ?', values)
     conn.commit()
     conn.close()
 
@@ -168,7 +168,7 @@ def UpdateTaskStatus(taskId, new_status):
     result = cursor.fetchone()
     if result:
         category_id = result[0]
-        cursor.execute('UPDATE tasks SET category_id = ? WHERE id = ?', (category_id, taskId))
+        cursor.execute('UPDATE tasks SET category_id = ? WHERE task_id = ?', (category_id, taskId))
         conn.commit()
     conn.close()
 
@@ -176,7 +176,7 @@ def MarkRecurringTaskComplete(taskId):
     conn = Connect()
     cursor = conn.cursor()
     today = cursor.execute("SELECT date('now', 'localtime')").fetchone()[0]
-    cursor.execute('UPDATE tasks SET last_completed_date = ? WHERE id = ?', (today, taskId))
+    cursor.execute('UPDATE tasks SET last_completed_date = ? WHERE task_id = ?', (today, taskId))
     conn.commit()
     conn.close()
 

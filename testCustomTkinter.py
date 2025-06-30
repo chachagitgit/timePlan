@@ -1111,11 +1111,11 @@ class TimePlanApp(ctk.CTk):
     def get_task_by_id(self, task_id):
         # Query the database for a specific task
         query = """
-            SELECT t.id, t.title, t.description, p.priority_name, t.due_date, tc.category_name 
+            SELECT t.task_id, t.task_title, t.description, p.priority_name, t.due_date, tc.category_name 
             FROM tasks t 
             JOIN task_category tc ON t.category_id = tc.category_id 
             LEFT JOIN priority p ON t.priority_id = p.priority_id
-            WHERE t.id = ?
+            WHERE t.task_id = ?
         """
         result = self.db_manager._fetch_one(query, (task_id,))
         return result
@@ -1705,7 +1705,7 @@ class TimePlanApp(ctk.CTk):
         current_date_str = current_local_date.strftime('%Y-%m-%d')
 
         for task in recurring_tasks:
-            task_id, title, description, start_date, recurrence_pattern, last_completed = task
+            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed = task
             
             # Create frame for each habit
             habit_frame = ctk.CTkFrame(self.habit_scroll_frame, fg_color="white", corner_radius=10)
@@ -1723,14 +1723,14 @@ class TimePlanApp(ctk.CTk):
                 variable=status_var,
                 onvalue="on",
                 offvalue="off",
-                command=lambda tid=task_id, svar=status_var: self.toggle_habit_completion(tid, svar)
+                command=lambda tid=rtask_id, svar=status_var: self.toggle_habit_completion(tid, svar)
             )
             status_checkbox.grid(row=0, column=0, rowspan=3, padx=(10,0), pady=10, sticky="nsew")
             
             # Title
             ctk.CTkLabel(
                 habit_frame,
-                text=title,
+                text=rtask_title,
                 font=ctk.CTkFont(size=18, weight="bold"),
                 text_color="#333333",
                 anchor="w"
@@ -1778,22 +1778,22 @@ class TimePlanApp(ctk.CTk):
                 text_color="#666666"
             ).pack(side="right", padx=(20, 10))
 
-    def toggle_habit_completion(self, task_id, status_var):
+    def toggle_habit_completion(self, rtask_id, status_var):
         """Toggle the completion status of a habit for today."""
         philippines_timezone = pytz.timezone('Asia/Manila')
         current_date = datetime.now(philippines_timezone).strftime('%Y-%m-%d')
         
         if status_var.get() == "on":
             # Mark as completed for today
-            if self.db_manager.update_recurring_task_completion(task_id, current_date):
-                print(f"Habit {task_id} marked as completed for {current_date}")
+            if self.db_manager.update_recurring_task_completion(rtask_id, current_date):
+                print(f"Habit {rtask_id} marked as completed for {current_date}")
             else:
                 messagebox.showerror("Error", "Failed to update habit completion status")
                 status_var.set("off")
         else:
             # Mark as not completed (set to null or previous date)
-            if self.db_manager.update_recurring_task_completion(task_id, None):
-                print(f"Habit {task_id} marked as not completed")
+            if self.db_manager.update_recurring_task_completion(rtask_id, None):
+                print(f"Habit {rtask_id} marked as not completed")
             else:
                 messagebox.showerror("Error", "Failed to update habit completion status")
                 status_var.set("on")

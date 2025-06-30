@@ -698,7 +698,7 @@ class HabitWidget(QWidget):
         try:
             cursor.execute('''
                 SELECT last_completed FROM tasks 
-                WHERE id = ? AND user_id = ?
+                WHERE task_id = ? AND user_id = ?
             ''', (task_id, self.user_id))
             result = cursor.fetchone()
             
