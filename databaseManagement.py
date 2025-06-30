@@ -432,6 +432,59 @@ class DatabaseManager:
         """
         return self._execute_query(query, (completed_date, rtask_id))
 
+    def remove_recurring_task_completion(self, rtask_id, completed_date):
+        """Remove completion date for a recurring task (set last_completed_date to NULL if it matches the date)."""
+        query = """
+            UPDATE recurring_tasks
+            SET last_completed_date = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE recurring_task_id = ? AND last_completed_date = ?
+        """
+        return self._execute_query(query, (rtask_id, completed_date))
+
+    def get_habit_completion_dates(self, rtask_id):
+        """Get all completion dates for a recurring task."""
+        query = """
+            SELECT DISTINCT last_completed_date 
+            FROM recurring_tasks 
+            WHERE recurring_task_id = ? AND last_completed_date IS NOT NULL
+            ORDER BY last_completed_date DESC
+        """
+        results = self._fetch_all(query, (rtask_id,))
+        return [result[0] for result in results] if results else []
+
+    def update_recurring_task(self, rtask_id, title, description, start_date, recurrence_pattern):
+        """Update an existing recurring task."""
+        query = """
+            UPDATE recurring_tasks
+            SET task_title = ?,
+                description = ?,
+                start_date = ?,
+                recurrence_pattern = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE recurring_task_id = ?
+        """
+        return self._execute_query(query, (title, description, start_date, recurrence_pattern, rtask_id))
+
+    def delete_recurring_task(self, rtask_id):
+        """Delete a recurring task."""
+        query = "DELETE FROM recurring_tasks WHERE recurring_task_id = ?"
+        return self._execute_query(query, (rtask_id,))
+
+    def search_tasks(self, user_id, search_term):
+        """Search for tasks by title or description."""
+        query = """
+            SELECT t.task_id, t.task_title, t.description, p.priority_name, t.due_date, tc.category_name 
+            FROM tasks t 
+            JOIN task_category tc ON t.category_id = tc.category_id 
+            LEFT JOIN priority p ON t.priority_id = p.priority_id
+            WHERE t.user_id = ? 
+            AND (LOWER(t.task_title) LIKE LOWER(?) OR LOWER(t.description) LIKE LOWER(?))
+            ORDER BY t.due_date ASC, t.task_title ASC
+        """
+        search_pattern = f"%{search_term}%"
+        return self._fetch_all(query, (user_id, search_pattern, search_pattern))
+
 # For testing the DatabaseManager separately
 if __name__ == '__main__':
     db_manager = DatabaseManager()

@@ -1121,547 +1121,51 @@ class TimePlanApp(ctk.CTk):
         return result
 
     def show_edit_task_form(self, task_id):
-        # Clear detail pane first
-        for widget in self.detail_pane.winfo_children():
-            widget.destroy()
-            
-        task = self.get_task_by_id(task_id)
+        """Open the edit task form for the selected task."""
+        if not self.selected_task:
+            return # No task selected, do not proceed
+        
+        task = self.db_manager.get_task_by_id(self.selected_task)
         if not task:
-            print(f"Error: Could not find task with ID {task_id}")
-            return
-            
+            return # Task not found, do not proceed
+        
         task_id, title, description, priority, due_date, category_name = task
-        
-        # Detail heading
-        ctk.CTkLabel(
-            self.detail_pane,
-            text="Edit Task",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#A85BC2"
-        ).pack(anchor="nw", padx=20, pady=(20, 20))
-        
-        # Create edit form
-        form_frame = ctk.CTkScrollableFrame(self.detail_pane, fg_color="transparent")
-        form_frame.pack(fill="both", expand=True, padx=20, pady=0)
-        
-        # Title
-        ctk.CTkLabel(
-            form_frame, 
-            text="Title:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        title_entry = ctk.CTkEntry(form_frame, width=280)
-        title_entry.insert(0, title)
-        title_entry.pack(anchor="w", pady=(0, 10), fill="x")
-        
-        # Category
-        ctk.CTkLabel(
-            form_frame, 
-            text="Category:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        # Filter out "Completed" and "Missed" categories for direct selection
-        editable_categories = [cat for cat in self.all_categories if cat not in ["Completed", "Missed"]]
-        if not editable_categories:
-            editable_categories = ["On-going"]  # Fallback
-            
-        category_menu = ctk.CTkOptionMenu(form_frame, values=editable_categories)
-        if category_name in editable_categories:
-            category_menu.set(category_name)
-        else:
-            # Default to first category if current one is not editable
-            category_menu.set(editable_categories[0])
-        category_menu.pack(anchor="w", pady=(0, 10), fill="x")
-        
-        # Due Date
-        ctk.CTkLabel(
-            form_frame, 
-            text="Due Date:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        # Date entry and calendar in the same frame
-        due_date_var = ctk.StringVar(value=due_date if due_date else "")
-        
-        date_label_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
-        date_label_frame.pack(fill="x", pady=(0, 5))
-        
-        due_date_entry = ctk.CTkEntry(date_label_frame, width=280, textvariable=due_date_var)
-        due_date_entry.pack(fill="x", expand=True)
-        
-        # Calendar frame
-        calendar_frame = ctk.CTkFrame(form_frame, fg_color="#FFFFFF", corner_radius=5)
-        calendar_frame.pack(fill="x", pady=(0, 10), padx=5)
-        # Calendar widget directly embedded in the form
-        cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
-                       background="#FFFFFF", 
-                       selectbackground="#A85BC2",
-                       headersbackground="#C576E0",
-                       headersforeground="white",
-                       normalbackground="#FFFFFF",
-                       showweeknumbers=False, showothermonthdays=True,
-                       font=("Arial", 10),
-                       showmonth=True,
-                       foreground="black")
-        
-        def on_date_selected(event=None):
-            selected_date = cal.get_date()
-            due_date_var.set(selected_date)
-        
-        cal.bind("<<CalendarSelected>>", on_date_selected)
-        
-        if due_date:
-            try:
-                cal.selection_set(due_date)
-            except:
-                pass
-        
-        cal.pack(padx=5, pady=5, fill="both", expand=True)
-        
-        # Priority
-        ctk.CTkLabel(
-            form_frame, 
-            text="Priority:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        all_priorities = self.get_all_priorities()
-        priority_menu = ctk.CTkOptionMenu(form_frame, values=all_priorities)
-        priority_menu.set(priority if priority in all_priorities else all_priorities[0])
-        priority_menu.pack(anchor="w", pady=(0, 10), fill="x")
-        
-        # Description
-        ctk.CTkLabel(
-            form_frame, 
-            text="Description:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        description_entry = ctk.CTkTextbox(form_frame, height=100, width=280)
-        if description:
-            description_entry.insert("1.0", description)
-        description_entry.pack(anchor="w", pady=(0, 20), fill="x")
-        
-        # Button Frame
-        btn_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
-        
-        # Save button
-        save_btn = ctk.CTkButton(
-            btn_frame,
-            text="Save Changes",
-            command=lambda: self.save_task_edits(
-                task_id,
-                title_entry.get(),
-                description_entry.get("1.0", "end-1c"),
-                priority_menu.get(),
-                due_date_var.get(),
-                category_menu.get()
-            ),
-            fg_color="#A85BC2",
-            hover_color="#C576E0",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35
-        )
-        save_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
-        
-        # Cancel button
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
-            command=lambda: self.show_task_detail(task_id),
-            fg_color="#9E9E9E",
-            hover_color="#757575",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35        )
-        cancel_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
-    
-       
-    def save_task_edits(self, task_id, title, description, priority, due_date, category_name):
-        if not title:
-            messagebox.showwarning("Warning", "Task title cannot be empty.")
-            return
-            
-        # Validate date format if provided
-        if due_date:
-            try:
-                due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                
-                # Check if the due date has passed
-                current_date = datetime.now().date()
-                if due_date_obj < current_date and category_name != "Completed":
-                    # If due date has passed and task is not completed, it should be marked as Missed
-                    category_name = "Missed"
-                    messagebox.showinfo("Notice", "Due date has passed. Task category set to 'Missed'.")
-                
-            except ValueError:
-                messagebox.showwarning(
-                    "Warning", 
-                    "Due date must be in YYYY-MM-DD format (e.g., 2025-06-30)."
-                )
-                return
-        
-        # Get category ID from name
-        category_id = self.db_manager.get_category_id_by_name(category_name)
-        if not category_id:
-            messagebox.showwarning("Warning", f"Category '{category_name}' not found.")
-            return
-            
-        # Update task in database
-        success = self.db_manager.update_task_details(
-            task_id,
-            title=title,
-            description=description if description else None,
-            priority=priority,
-            due_date=due_date if due_date else None,
-            category_id=category_id
-        )
-        
-        if success:
-            # Show success popup
-            messagebox.showinfo("Success", "Task updated successfully!")
-            
-            # Determine which page to return to based on where the user came from
-            if self.current_page == "calendar":
-                # If user was on calendar page, return there
-                self.show_calendar_page()
-            else:
-                # Otherwise, return to task list with the current filter
-                current_filter = self.get_current_filter()
-                self.show_tasks_page(current_filter)
-            
-            # Show updated task details
-            self.show_task_detail(task_id)
-        else:
-            messagebox.showerror("Error", "Failed to update task.")
-    
-    def show_task_detail(self, task_id):
-        # Note: task_id is already stored in self.selected_task by the click handler
-        
-        # Ensure the detail pane exists and is visible before fetching task data
-        # This gives the appearance of instant responsiveness
-        if not hasattr(self, 'detail_pane') or not self.detail_pane_visible:
-            # Create a fresh detail pane immediately
-            self.detail_pane = ctk.CTkFrame(self, width=self.detail_pane_width, fg_color="#F3E6F8", corner_radius=0)
-            self.detail_pane.pack(side="right", fill="y")
-            # Prevent the pane from resizing smaller than our defined width
-            self.detail_pane.pack_propagate(False)
-            self.detail_pane_visible = True
-            
-            # Create an immediate loading message while fetching data
-            loading_label = ctk.CTkLabel(
-                self.detail_pane,
-                text="Loading task details...",
-                font=ctk.CTkFont(size=16),
-                text_color="#A85BC2"
-            )
-            loading_label.pack(expand=True)
-            self.update_idletasks()  # Force immediate UI update
-            
-        # Now fetch the task details from the database
-        task = self.get_task_by_id(task_id)
-        if not task:
-            print(f"Error: Could not find task with ID {task_id}")
-            # If task no longer exists, hide the detail pane
-            self.hide_task_detail()
-            return
-            
-        # Unpack task data
-        task_id, title, description, priority, due_date, category_name = task
-        
-        # Clear existing content
-        for widget in self.detail_pane.winfo_children():
-            widget.destroy()
-            
-        # Clear existing content in detail pane
-        for widget in self.detail_pane.winfo_children():
-            widget.destroy()
-            
-        # Create a close button at the top right
-        close_btn = ctk.CTkButton(
-            self.detail_pane,
-            text="✕",
-            width=30,
-            height=30,
-            fg_color="transparent",
-            text_color="#A85BC2",
-            hover_color="#E5C6F2",
-            corner_radius=5,
-            command=self.hide_task_detail
-        )
-        close_btn.pack(anchor="ne", padx=10, pady=10)
 
-        # Task title
-        ctk.CTkLabel(
-            self.detail_pane,
-            text="Task Details",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#A85BC2"
-        ).pack(anchor="nw", padx=20, pady=(0, 20))
+        # Update the form fields with the selected task details
+        self.edit_task_title_entry.delete(0, ctk.END)
+        self.edit_task_title_entry.insert(0, title)
         
-        # Create detail fields
-        fields_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
-        fields_frame.pack(fill="x", padx=20, pady=0)
+        self.edit_task_description_entry.delete(0, ctk.END)
+        self.edit_task_description_entry.insert(0, description if description else "")
         
-        # Title
-        ctk.CTkLabel(
-            fields_frame, 
-            text="Title:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
+        self.edit_task_priority_optionmenu.set(priority)
         
-        ctk.CTkLabel(
-            fields_frame,
-            text=title,
-            font=ctk.CTkFont(size=16),
-            wraplength=280,
-            text_color="#333333"
-        ).pack(anchor="w", pady=(0, 10), fill="x")
+        self.edit_task_due_date_entry.delete(0, ctk.END)
+        self.edit_task_due_date_entry.insert(0, due_date if due_date else "")
         
-        # Due Date
-        ctk.CTkLabel(
-            fields_frame, 
-            text="Due Date:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        due_date_text = f"{due_date}" if due_date else "Not set"
-        ctk.CTkLabel(
-            fields_frame,
-            text=due_date_text,
-            font=ctk.CTkFont(size=16),
-            text_color="#333333"
-        ).pack(anchor="w", pady=(0, 10))
-        
-        # Category
-        ctk.CTkLabel(
-            fields_frame, 
-            text="Category:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        ctk.CTkLabel(
-            fields_frame,
-            text=category_name,
-            font=ctk.CTkFont(size=16),
-            text_color="#333333"
-        ).pack(anchor="w", pady=(0, 10))
-        
-        # Priority
-        ctk.CTkLabel(
-            fields_frame, 
-            text="Priority:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        priority_text = f"⚠️ {priority}" if priority == "Urgent" else priority
-        ctk.CTkLabel(
-            fields_frame,
-            text=priority_text,
-            font=ctk.CTkFont(size=16),
-            text_color="#FF5252" if priority == "Urgent" else "#333333"
-        ).pack(anchor="w", pady=(0, 10))
-        
-        # Description
-        ctk.CTkLabel(
-            fields_frame, 
-            text="Description:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        description_text = description if description else "No description"
-        desc_label = ctk.CTkLabel(
-            fields_frame,
-            text=description_text,
-            font=ctk.CTkFont(size=16),
-            wraplength=280,
-            text_color="#333333",
-            justify="left"
-        )
-        desc_label.pack(anchor="w", pady=(0, 20), fill="x")
-        
-        # Add action buttons
-        btn_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=20)
-        
-        edit_btn = ctk.CTkButton(
-            btn_frame,
-            text="Edit Task",
-            command=lambda: self.show_edit_task_form(task_id),
-            fg_color="#A85BC2",
-            hover_color="#C576E0",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35
-        )
-        edit_btn.pack(fill="x", pady=(0, 10))
-        
-        delete_btn = ctk.CTkButton(
-            btn_frame,
-            text="Delete Task",
-            command=lambda: self.confirm_delete_task(task_id),
-            fg_color="#E57373",
-            hover_color="#EF5350",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35
-        )
-        delete_btn.pack(fill="x")
-    
-    def show_search_dialog(self):
-        """Show dialog to search for tasks."""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Search Tasks")
-        dialog.geometry("500x120")
-        dialog.resizable(False, False)
-        
-        # Make dialog modal
-        dialog.transient(self)
-        dialog.grab_set()
-        
-        # Center dialog on main window
-        dialog.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() - dialog.winfo_width()) // 2
-        y = self.winfo_y() + (self.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f"+{x}+{y}")
+        self.edit_task_category_optionmenu.set(category_name)
 
-        # Search form
-        form_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        form_frame.pack(fill="both", expand=True, padx=20, pady=20)
-
-        # Search entry
-        search_entry = ctk.CTkEntry(
-            form_frame, 
-            placeholder_text="Enter search term...",
-            width=300,
-            height=35,
-            font=ctk.CTkFont(size=14)
-        )
-        search_entry.pack(side="left", padx=(0, 10))
-
-        def perform_search():
-            search_term = search_entry.get().strip()
-            if not search_term:
-                messagebox.showwarning("Warning", "Please enter a search term.")
-                return
-            
-            # Close the dialog
-            dialog.destroy()
-            
-            # Clear current content and show search results
-            self.clear_content()
-            
-            # Show search results header
-            ctk.CTkLabel(
-                self.content,
-                text=f"Search Results for '{search_term}'",
-                font=ctk.CTkFont(size=24, weight="bold"),
-                text_color="#A85BC2"
-            ).pack(anchor="nw", pady=(10, 0), padx=10)
-
-            # Create scrollable frame for results
-            results_frame = ctk.CTkScrollableFrame(self.content, fg_color="transparent")
-            results_frame.pack(fill="both", expand=True, padx=10, pady=10)
-            
-            # Search in tasks
-            results = self.db_manager.search_tasks(self.current_user_id, search_term)
-            
-            if not results:
-                ctk.CTkLabel(
-                    results_frame,
-                    text="No tasks found matching your search.",
-                    font=ctk.CTkFont(size=16),
-                    text_color="#6A057F"
-                ).pack(pady=20)
-                return
-
-            # Display results
-            for task in results:
-                task_id, title, description, priority, due_date, category_name = task
-                
-                task_frame = ctk.CTkFrame(results_frame, fg_color="white", corner_radius=10)
-                task_frame.pack(fill="x", pady=5, padx=5)
-                
-                # Make the frame clickable for task details
-                def on_task_click(event, tid=task_id):
-                    self.selected_task = tid
-                    self.show_task_detail(tid)
-                task_frame.bind("<Button-1>", on_task_click)
-                task_frame.configure(cursor="hand2")
-                
-                # Title with priority indicator
-                title_text = f"⚠️ {title}" if priority == "Urgent" else title
-                ctk.CTkLabel(
-                    task_frame,
-                    text=title_text,
-                    font=ctk.CTkFont(size=16, weight="bold"),
-                    text_color="#333333"
-                ).pack(anchor="w", padx=10, pady=(10, 5))
-                
-                # Description if available
-                if description:
-                    ctk.CTkLabel(
-                        task_frame,
-                        text=description,
-                        font=ctk.CTkFont(size=14),
-                        text_color="#666666",
-                        wraplength=400
-                    ).pack(anchor="w", padx=10, pady=(0, 5))
-                
-                # Category and due date
-                info_frame = ctk.CTkFrame(task_frame, fg_color="transparent")
-                info_frame.pack(fill="x", padx=10, pady=(0, 10))
-                
-                ctk.CTkLabel(
-                    info_frame,
-                    text=category_name,
-                    font=ctk.CTkFont(size=12, weight="bold"),
-                    text_color="#666666"
-                ).pack(side="left")
-                
-                if due_date:
-                    ctk.CTkLabel(
-                        info_frame,
-                        text=f"Due: {due_date}",
-                        font=ctk.CTkFont(size=12),
-                        text_color="#666666"
-                    ).pack(side="right", padx=(20, 10))
-
-        # Search button
-        search_btn = ctk.CTkButton(
-            form_frame,
-            text="Search",
-            command=perform_search,
-            width=100,
-            height=35,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#A85BC2",
-            hover_color="#C576E0"
-        )
-        search_btn.pack(side="left")
-
-        # Bind Enter key to search
-        search_entry.bind("<Return>", lambda e: perform_search())
-        
-        # Set focus to search entry
-        search_entry.focus_set()
+        # Focus on the title field
+        self.edit_task_title_entry.focus_set()
 
     def show_habit_page(self):
         """Show the habits/recurring tasks page."""
         self.navbar.pack_forget()
         self.content.pack_forget()
+        
+        # Create a container frame for content and detail pane
+        self.habit_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.habit_container.pack(side="left", fill="both", expand=True)
+        
+        # Create the content area (left side)
+        self.content = ctk.CTkFrame(self.habit_container, fg_color="transparent")
         self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
         self.clear_content()
+
+        # Create the detail pane (right side)
+        self.habit_detail_pane = ctk.CTkFrame(self.habit_container, width=350, fg_color="#F3E6F8", corner_radius=0)
+        self.habit_detail_pane.pack(side="right", fill="y")
+        self.habit_detail_pane.pack_propagate(False)
 
         # Header section
         header_frame = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -1698,11 +1202,16 @@ class TimePlanApp(ctk.CTk):
                 font=ctk.CTkFont(size=16),
                 text_color="#6A057F"
             ).pack(pady=20)
+            # Show empty state in detail pane
+            self.show_habit_detail(None)
             return
 
         philippines_timezone = pytz.timezone('Asia/Manila')
         current_local_date = datetime.now(philippines_timezone).date()
         current_date_str = current_local_date.strftime('%Y-%m-%d')
+
+        # Variable to track the selected habit
+        self.selected_habit = None
 
         for task in recurring_tasks:
             rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed = task
@@ -1710,6 +1219,34 @@ class TimePlanApp(ctk.CTk):
             # Create frame for each habit
             habit_frame = ctk.CTkFrame(self.habit_scroll_frame, fg_color="white", corner_radius=10)
             habit_frame.pack(fill="x", pady=5, padx=5)
+            
+            def on_habit_click(e, tid=rtask_id):
+                # Update selected state of all habit frames
+                for child in self.habit_scroll_frame.winfo_children():
+                    if hasattr(child, 'configure'):
+                        child.configure(fg_color="white")
+                # Find the habit frame that was clicked and highlight it
+                current_frame = e.widget
+                while current_frame and current_frame != self.habit_scroll_frame:
+                    if hasattr(current_frame, 'configure') and hasattr(current_frame, 'pack_info'):
+                        try:
+                            current_frame.configure(fg_color="#F3E6F8")
+                            break
+                        except:
+                            pass
+                    current_frame = current_frame.master
+                self.selected_habit = tid
+                self.show_habit_detail(tid)
+                
+            # Bind click event to the frame and all its children
+            def bind_recursive(widget, event, callback):
+                widget.bind(event, callback)
+                widget.configure(cursor="hand2")
+                for child in widget.winfo_children():
+                    if child.winfo_class() != 'Checkbutton':  # Don't bind to checkbox
+                        bind_recursive(child, event, callback)
+            
+            bind_recursive(habit_frame, "<Button-1>", on_habit_click)
             
             # Grid configuration
             habit_frame.grid_columnconfigure(1, weight=1)
@@ -1726,6 +1263,13 @@ class TimePlanApp(ctk.CTk):
                 command=lambda tid=rtask_id, svar=status_var: self.toggle_habit_completion(tid, svar)
             )
             status_checkbox.grid(row=0, column=0, rowspan=3, padx=(10,0), pady=10, sticky="nsew")
+            
+            # Prevent checkbox click from propagating to habit selection
+            def prevent_propagation(e):
+                e.stopPropagation = True
+                return "break"
+            
+            status_checkbox.bind("<Button-1>", prevent_propagation, add="+")
             
             # Title
             ctk.CTkLabel(
@@ -1749,17 +1293,7 @@ class TimePlanApp(ctk.CTk):
             
             # Pattern and last completion info
             pattern_text = f"Recurrence: {recurrence_pattern}"
-            if last_completed:
-                try:
-                    completion_date = datetime.strptime(last_completed, '%Y-%m-%d').date()
-                    if completion_date == current_local_date:
-                        completion_text = "Completed today"
-                    else:
-                        completion_text = f"Last completed: {last_completed}"
-                except ValueError:
-                    completion_text = f"Last completed: {last_completed}"
-            else:
-                completion_text = "Not yet completed"
+            completion_text = "Completed today" if last_completed == current_date_str else f"Last completed: {last_completed}" if last_completed else "Not yet completed"
 
             info_frame = ctk.CTkFrame(habit_frame, fg_color="transparent")
             info_frame.grid(row=2, column=1, columnspan=2, padx=(10, 5), pady=(5, 10), sticky="ew")
@@ -1777,29 +1311,228 @@ class TimePlanApp(ctk.CTk):
                 font=ctk.CTkFont(size=12),
                 text_color="#666666"
             ).pack(side="right", padx=(20, 10))
-
-    def toggle_habit_completion(self, rtask_id, status_var):
-        """Toggle the completion status of a habit for today."""
-        philippines_timezone = pytz.timezone('Asia/Manila')
-        current_date = datetime.now(philippines_timezone).strftime('%Y-%m-%d')
+            
+            # If this is the first habit, select it by default
+            if self.selected_habit is None:
+                self.selected_habit = rtask_id
+                habit_frame.configure(fg_color="#F3E6F8")
         
-        if status_var.get() == "on":
-            # Mark as completed for today
-            if self.db_manager.update_recurring_task_completion(rtask_id, current_date):
-                print(f"Habit {rtask_id} marked as completed for {current_date}")
-            else:
-                messagebox.showerror("Error", "Failed to update habit completion status")
-                status_var.set("off")
+        # Show details of the first habit
+        if self.selected_habit:
+            self.show_habit_detail(self.selected_habit)
         else:
-            # Mark as not completed (set to null or previous date)
-            if self.db_manager.update_recurring_task_completion(rtask_id, None):
-                print(f"Habit {rtask_id} marked as not completed")
-            else:
-                messagebox.showerror("Error", "Failed to update habit completion status")
-                status_var.set("on")
+            self.show_habit_detail(None)
 
+    def show_habit_detail(self, rtask_id):
+        """Show the details of a recurring task in the detail pane."""
+        # Clear existing content in detail pane
+        for widget in self.habit_detail_pane.winfo_children():
+            widget.destroy()
+
+        # Show empty state if no task is selected
+        if rtask_id is None:
+            ctk.CTkLabel(
+                self.habit_detail_pane,
+                text="Habits Dashboard",
+                font=ctk.CTkFont(size=20, weight="bold"),
+                text_color="#A85BC2"
+            ).pack(anchor="nw", padx=20, pady=(20, 10))
+
+            ctk.CTkLabel(
+                self.habit_detail_pane,
+                text="Select a habit from the list to view details or click 'Add New Habit' to create one.",
+                font=ctk.CTkFont(size=14),
+                text_color="#6A057F",
+                wraplength=280
+            ).pack(anchor="nw", padx=20, pady=(0, 20))
+
+            # Calendar showing all completion dates
+            ctk.CTkLabel(
+                self.habit_detail_pane,
+                text="Calendar Overview:",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#6A057F"
+            ).pack(anchor="w", padx=20, pady=(5, 0))
+
+            calendar_frame = ctk.CTkFrame(self.habit_detail_pane, fg_color="#FFFFFF", corner_radius=5)
+            calendar_frame.pack(fill="x", padx=20, pady=(5, 10))
+
+            cal = Calendar(calendar_frame,
+                        selectmode='none',
+                        date_pattern='yyyy-mm-dd',
+                        background="#FFFFFF",
+                        headersbackground="#C576E0",
+                        headersforeground="white",
+                        normalbackground="#FFFFFF",
+                        showweeknumbers=False,
+                        showothermonthdays=True,
+                        font=("Arial", 10),
+                        foreground="black")
+            
+            cal.pack(padx=5, pady=5, fill="both", expand=True)
+
+            # Add habit button at the bottom
+            btn_frame = ctk.CTkFrame(self.habit_detail_pane, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=20, pady=20)
+
+            add_btn = ctk.CTkButton(
+                btn_frame,
+                text="Add New Habit",
+                command=self.show_add_habit_dialog,
+                fg_color="#A85BC2",
+                hover_color="#C576E0",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                height=35
+            )
+            add_btn.pack(fill="x")
+            return
+
+        # Get task details
+        tasks = self.db_manager.get_recurring_tasks(self.current_user_id)
+        task = next((t for t in tasks if t[0] == rtask_id), None)
+        
+        if not task:
+            return
+            
+        rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed = task
+
+        # Title section
+        ctk.CTkLabel(
+            self.habit_detail_pane,
+            text="Habit Details",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(anchor="nw", padx=20, pady=(20, 20))
+
+        # Create detail fields
+        fields_frame = ctk.CTkFrame(self.habit_detail_pane, fg_color="transparent")
+        fields_frame.pack(fill="x", padx=20, pady=0)
+
+        # Title
+        ctk.CTkLabel(
+            fields_frame,
+            text="Title:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+
+        ctk.CTkLabel(
+            fields_frame,
+            text=rtask_title,
+            font=ctk.CTkFont(size=16),
+            wraplength=280,
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10), fill="x")
+
+        # Description
+        ctk.CTkLabel(
+            fields_frame,
+            text="Description:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+
+        description_text = description if description else "No description"
+        ctk.CTkLabel(
+            fields_frame,
+            text=description_text,
+            font=ctk.CTkFont(size=16),
+            wraplength=280,
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10), fill="x")
+
+        # Recurrence Pattern
+        ctk.CTkLabel(
+            fields_frame,
+            text="Recurrence:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+
+        ctk.CTkLabel(
+            fields_frame,
+            text=recurrence_pattern,
+            font=ctk.CTkFont(size=16),
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Last Completed
+        ctk.CTkLabel(
+            fields_frame,
+            text="Last Completed:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+
+        last_completed_text = last_completed if last_completed else "Not yet completed"
+        ctk.CTkLabel(
+            fields_frame,
+            text=last_completed_text,
+            font=ctk.CTkFont(size=16),
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Calendar showing completion dates
+        ctk.CTkLabel(
+            fields_frame,
+            text="Completion Calendar:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+
+        calendar_frame = ctk.CTkFrame(fields_frame, fg_color="#FFFFFF", corner_radius=5)
+        calendar_frame.pack(fill="x", pady=(5, 10))
+
+        # Get completion dates for this habit for the current month
+        completion_dates = self.db_manager.get_habit_completion_dates(rtask_id)
+        
+        cal = Calendar(calendar_frame,
+                      selectmode='none',
+                      date_pattern='yyyy-mm-dd',
+                      background="#FFFFFF",
+                      headersbackground="#C576E0",
+                      headersforeground="white",
+                      normalbackground="#FFFFFF",
+                      showweeknumbers=False,
+                      showothermonthdays=True,
+                      font=("Arial", 10),
+                      foreground="black")
+        
+        # Highlight completion dates
+        for date in completion_dates:
+            cal.calevent_create(date, "Completed", "completed")
+        
+        cal.tag_config('completed', background='#A85BC2', foreground='white')
+        cal.pack(padx=5, pady=5, fill="both", expand=True)
+
+        # Button Frame
+        btn_frame = ctk.CTkFrame(self.habit_detail_pane, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=20)
+
+        edit_btn = ctk.CTkButton(
+            btn_frame,
+            text="Edit Habit",
+            command=lambda: self.show_edit_habit_dialog(rtask_id),
+            fg_color="#A85BC2",
+            hover_color="#C576E0",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=35
+        )
+        edit_btn.pack(fill="x", pady=(0, 10))
+
+        delete_btn = ctk.CTkButton(
+            btn_frame,
+            text="Delete Habit",
+            command=lambda: self.confirm_delete_habit(rtask_id),
+            fg_color="#E57373",
+            hover_color="#EF5350",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=35
+        )
+        delete_btn.pack(fill="x")
+    
     def show_add_habit_dialog(self):
-        """Show dialog to add a new recurring task/habit."""
+        """Show dialog to add a new habit."""
         dialog = ctk.CTkToplevel(self)
         dialog.title("Add New Habit")
         dialog.geometry("500x400")
@@ -1815,25 +1548,23 @@ class TimePlanApp(ctk.CTk):
         y = self.winfo_y() + (self.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
 
-        # Form contents
         form_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         form_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
         # Title
         ctk.CTkLabel(form_frame, text="Title:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
-        title_entry = ctk.CTkEntry(form_frame, placeholder_text="Enter habit title")
+        title_entry = ctk.CTkEntry(form_frame)
         title_entry.pack(fill="x", pady=(0, 15))
 
         # Description
         ctk.CTkLabel(form_frame, text="Description:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
-        description_entry = ctk.CTkEntry(form_frame, placeholder_text="Enter habit description (optional)")
+        description_entry = ctk.CTkEntry(form_frame)
         description_entry.pack(fill="x", pady=(0, 15))
 
         # Start Date
         ctk.CTkLabel(form_frame, text="Start Date:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
-        start_date_entry = ctk.CTkEntry(form_frame, placeholder_text="YYYY-MM-DD")
+        start_date_entry = ctk.CTkEntry(form_frame)
         start_date_entry.pack(fill="x", pady=(0, 15))
-        start_date_entry.insert(0, datetime.now(pytz.timezone('Asia/Manila')).strftime('%Y-%m-%d'))
 
         # Recurrence Pattern
         ctk.CTkLabel(form_frame, text="Recurrence Pattern:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
@@ -1845,46 +1576,227 @@ class TimePlanApp(ctk.CTk):
         )
         pattern_optionmenu.pack(fill="x", pady=(0, 20))
 
-        def save_habit():
+        def add_habit():
             title = title_entry.get().strip()
+            description = description_entry.get().strip()
+            start_date = start_date_entry.get().strip()
+            recurrence_pattern = pattern_var.get()
+            
             if not title:
                 messagebox.showwarning("Warning", "Title is required")
                 return
 
-            description = description_entry.get().strip()
-            start_date = start_date_entry.get().strip()
+            if not start_date:
+                messagebox.showwarning("Warning", "Start date is required")
+                return
+
             try:
                 datetime.strptime(start_date, '%Y-%m-%d')
             except ValueError:
                 messagebox.showwarning("Warning", "Invalid start date format. Use YYYY-MM-DD")
                 return
 
-            pattern = pattern_var.get()
-            new_task_id = self.db_manager.add_recurring_task(
+            if self.db_manager.add_recurring_task(
                 self.current_user_id,
                 title,
                 description,
                 start_date,
-                pattern
-            )
-
-            if new_task_id:
+                recurrence_pattern
+            ):
                 messagebox.showinfo("Success", "Habit added successfully!")
                 dialog.destroy()
-                self.show_habit_page()  # Refresh the habits page
+                self.show_habit_page()  # Refresh the page
             else:
                 messagebox.showerror("Error", "Failed to add habit")
+
+        # Add button
+        add_btn = ctk.CTkButton(
+            form_frame,
+            text="Add Habit",
+            command=add_habit,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#A85BC2",
+            hover_color="#C576E0"
+        )
+        add_btn.pack(fill="x", pady=(20, 10))
+        
+        # Cancel button
+        cancel_btn = ctk.CTkButton(
+            form_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#9E9E9E",
+            hover_color="#757575"
+        )
+        cancel_btn.pack(fill="x")
+
+    def toggle_habit_completion(self, rtask_id, status_var):
+        """Toggle completion status of a habit for today."""
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).date()
+        current_date_str = current_local_date.strftime('%Y-%m-%d')
+        
+        if status_var.get() == "on":  # Mark as completed today
+            if self.db_manager.update_recurring_task_completion(rtask_id, current_date_str):
+                print(f"Habit {rtask_id} marked as completed for {current_date_str}")
+                # Refresh the habit details if this is the selected habit
+                if hasattr(self, 'selected_habit') and self.selected_habit == rtask_id:
+                    self.show_habit_detail(rtask_id)
+            else:
+                print(f"Failed to mark habit {rtask_id} as completed")
+                status_var.set("off")  # Revert checkbox on failure
+        else:  # Mark as not completed today (remove completion for today)
+            if self.db_manager.remove_recurring_task_completion(rtask_id, current_date_str):
+                print(f"Habit {rtask_id} completion removed for {current_date_str}")
+                # Refresh the habit details if this is the selected habit
+                if hasattr(self, 'selected_habit') and self.selected_habit == rtask_id:
+                    self.show_habit_detail(rtask_id)
+            else:
+                print(f"Failed to remove completion for habit {rtask_id}")
+                status_var.set("on")  # Revert checkbox on failure
+
+    def show_edit_habit_dialog(self, rtask_id):
+        """Show dialog to edit an existing habit."""
+        # Get the current habit details
+        tasks = self.db_manager.get_recurring_tasks(self.current_user_id)
+        task = next((t for t in tasks if t[0] == rtask_id), None)
+        
+        if not task:
+            messagebox.showerror("Error", "Habit not found")
+            return
+            
+        rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed = task
+        
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Edit Habit")
+        dialog.geometry("500x400")
+        dialog.resizable(False, False)
+        
+        # Make dialog modal
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center dialog on main window
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        form_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        form_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Title
+        ctk.CTkLabel(form_frame, text="Title:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
+        title_entry = ctk.CTkEntry(form_frame)
+        title_entry.pack(fill="x", pady=(0, 15))
+        title_entry.insert(0, rtask_title)
+
+        # Description
+        ctk.CTkLabel(form_frame, text="Description:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
+        description_entry = ctk.CTkEntry(form_frame)
+        description_entry.pack(fill="x", pady=(0, 15))
+        description_entry.insert(0, description if description else "")
+
+        # Start Date
+        ctk.CTkLabel(form_frame, text="Start Date:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
+        start_date_entry = ctk.CTkEntry(form_frame)
+        start_date_entry.pack(fill="x", pady=(0, 15))
+        start_date_entry.insert(0, start_date)
+
+        # Recurrence Pattern
+        ctk.CTkLabel(form_frame, text="Recurrence Pattern:", anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", pady=(0, 5))
+        pattern_var = ctk.StringVar(value=recurrence_pattern)
+        pattern_optionmenu = ctk.CTkOptionMenu(
+            form_frame,
+            values=["Daily", "Weekly", "Monthly"],
+            variable=pattern_var
+        )
+        pattern_optionmenu.pack(fill="x", pady=(0, 20))
+
+        def save_habit():
+            title = title_entry.get().strip()
+            description = description_entry.get().strip()
+            start_date = start_date_entry.get().strip()
+            recurrence_pattern = pattern_var.get()
+            
+            if not title:
+                messagebox.showwarning("Warning", "Title is required")
+                return
+
+            if not start_date:
+                messagebox.showwarning("Warning", "Start date is required")
+                return
+
+            try:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                messagebox.showwarning("Warning", "Invalid start date format. Use YYYY-MM-DD")
+                return
+
+            if self.db_manager.update_recurring_task(
+                rtask_id,
+                title,
+                description,
+                start_date,
+                recurrence_pattern
+            ):
+                messagebox.showinfo("Success", "Habit updated successfully!")
+                dialog.destroy()
+                self.show_habit_page()  # Refresh the page
+            else:
+                messagebox.showerror("Error", "Failed to update habit")
 
         # Save button
         save_btn = ctk.CTkButton(
             form_frame,
-            text="Save Habit",
+            text="Save Changes",
             command=save_habit,
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#A85BC2",
             hover_color="#C576E0"
         )
-        save_btn.pack(fill="x", pady=(20, 0))
+        save_btn.pack(fill="x", pady=(20, 10))
+        
+        # Cancel button
+        cancel_btn = ctk.CTkButton(
+            form_frame,
+            text="Cancel",
+            command=dialog.destroy,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#9E9E9E",
+            hover_color="#757575"
+        )
+        cancel_btn.pack(fill="x")
+
+    def get_current_filter(self):
+        """Get the currently active filter from the navbar buttons."""
+        for btn in self.navbar_nav_items:
+            if btn.cget("fg_color") == "#A85BC2":  # Active button color
+                return btn.cget("text")
+        return "All Tasks"  # Default fallback
+
+    def confirm_delete_task(self, task_id):
+        """Show confirmation dialog before deleting a task."""
+        if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this task?"):
+            if self.db_manager.delete_task(task_id):
+                messagebox.showinfo("Success", "Task deleted successfully!")
+                # Get current filter and refresh the view
+                current_filter = self.get_current_filter()
+                self.show_tasks_page(current_filter)
+                # Hide the detail pane since the task is deleted
+                self.hide_task_detail()
+            else:
+                messagebox.showerror("Error", "Failed to delete task")
+
+    def confirm_delete_habit(self, rtask_id):
+        """Show confirmation dialog before deleting a habit."""
+        if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this habit?"):
+            if self.db_manager.delete_recurring_task(rtask_id):
+                messagebox.showinfo("Success", "Habit deleted successfully!")
+                self.show_habit_page()  # Refresh the page
+            else:
+                messagebox.showerror("Error", "Failed to delete habit")
         
     def get_all_priorities(self):
         """Get all priorities from the database."""
@@ -1913,6 +1825,180 @@ class TimePlanApp(ctk.CTk):
                     text_color="#A85BC2",
                     hover_color="#E5C6F2"
                 )
+
+    def show_search_dialog(self):
+        """Show search dialog to find tasks by title or description."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Search Tasks")
+        dialog.geometry("600x500")
+        dialog.resizable(False, False)
+        
+        # Make dialog modal
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center dialog on main window
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        # Main container
+        main_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Title
+        ctk.CTkLabel(
+            main_frame,
+            text="Search Tasks",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(anchor="nw", pady=(0, 20))
+
+        # Search input frame
+        search_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        search_frame.pack(fill="x", pady=(0, 20))
+
+        ctk.CTkLabel(
+            search_frame,
+            text="Search by title or description:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w"
+        ).pack(fill="x", pady=(0, 5))
+
+        search_entry = ctk.CTkEntry(
+            search_frame,
+            placeholder_text="Enter search terms...",
+            font=ctk.CTkFont(size=14)
+        )
+        search_entry.pack(fill="x", pady=(0, 10))
+
+        # Search button
+        search_btn = ctk.CTkButton(
+            search_frame,
+            text="Search",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#A85BC2",
+            hover_color="#C576E0",
+            command=lambda: perform_search()
+        )
+        search_btn.pack(anchor="e")
+
+        # Results frame
+        results_frame = ctk.CTkFrame(main_frame, fg_color="white", corner_radius=10)
+        results_frame.pack(fill="both", expand=True, pady=(10, 0))
+
+        # Results scrollable area
+        results_scroll = ctk.CTkScrollableFrame(results_frame, fg_color="transparent")
+        results_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def perform_search():
+            search_term = search_entry.get().strip()
+            
+            # Clear previous results
+            for widget in results_scroll.winfo_children():
+                widget.destroy()
+            
+            if not search_term:
+                ctk.CTkLabel(
+                    results_scroll,
+                    text="Please enter a search term",
+                    font=ctk.CTkFont(size=14),
+                    text_color="#666666"
+                ).pack(pady=20)
+                return
+            
+            # Get search results from database
+            search_results = self.db_manager.search_tasks(self.current_user_id, search_term)
+            
+            if not search_results:
+                ctk.CTkLabel(
+                    results_scroll,
+                    text="No tasks found matching your search",
+                    font=ctk.CTkFont(size=14),
+                    text_color="#666666"
+                ).pack(pady=20)
+                return
+            
+            # Display results
+            ctk.CTkLabel(
+                results_scroll,
+                text=f"Found {len(search_results)} task(s):",
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color="#A85BC2"
+            ).pack(anchor="w", pady=(0, 10))
+            
+            for task in search_results:
+                task_id, title, description, priority, due_date, category_name = task
+                
+                # Create result frame
+                result_frame = ctk.CTkFrame(results_scroll, fg_color="#F8F3FB", corner_radius=8)
+                result_frame.pack(fill="x", pady=5, padx=5)
+                
+                # Make clickable
+                def on_task_click(e, tid=task_id):
+                    dialog.destroy()
+                    self.show_tasks_page('All Tasks')
+                    self.show_task_detail(tid)
+                
+                result_frame.bind("<Button-1>", on_task_click)
+                result_frame.configure(cursor="hand2")
+                
+                # Task content
+                content_frame = ctk.CTkFrame(result_frame, fg_color="transparent")
+                content_frame.pack(fill="x", padx=10, pady=10)
+                
+                # Title
+                ctk.CTkLabel(
+                    content_frame,
+                    text=title,
+                    font=ctk.CTkFont(size=16, weight="bold"),
+                    text_color="#333333",
+                    anchor="w"
+                ).pack(fill="x")
+                
+                # Description
+                if description:
+                    ctk.CTkLabel(
+                        content_frame,
+                        text=description,
+                        font=ctk.CTkFont(size=14),
+                        text_color="#666666",
+                        anchor="w",
+                        wraplength=500
+                    ).pack(fill="x", pady=(5, 0))
+                
+                # Task details
+                details_text = f"Category: {category_name}"
+                if due_date:
+                    details_text += f" | Due: {due_date}"
+                if priority:
+                    details_text += f" | Priority: {priority}"
+                
+                ctk.CTkLabel(
+                    content_frame,
+                    text=details_text,
+                    font=ctk.CTkFont(size=12),
+                    text_color="#999999",
+                    anchor="w"
+                ).pack(fill="x", pady=(5, 0))
+
+        # Bind Enter key to search
+        search_entry.bind("<Return>", lambda e: perform_search())
+        
+        # Close button
+        close_btn = ctk.CTkButton(
+            main_frame,
+            text="Close",
+            command=dialog.destroy,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#9E9E9E",
+            hover_color="#757575"
+        )
+        close_btn.pack(anchor="e", pady=(20, 0))
+        
+        # Focus on search entry
+        search_entry.focus_set()
 
 # Application entry point
 if __name__ == "__main__":
