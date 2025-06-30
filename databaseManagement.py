@@ -211,10 +211,12 @@ class DatabaseManager:
             # All tasks: display all tasks, regardless of category (no additional filter)
             pass
         elif filter_type == 'On-going':
-            # On-going: display all on-going tasks
+            # On-going: display all on-going tasks that are not past due
             if ongoing_category_id:
-                query += "AND t.category_id = ? "
-                params.append(ongoing_category_id)
+                query += """AND t.category_id = ? 
+                    AND (t.due_date IS NULL 
+                         OR DATE(t.due_date) >= DATE(?))"""
+                params.extend([ongoing_category_id, current_local_date_str])
         elif filter_type == 'Completed':
             # Completed: display all completed tasks
             if completed_category_id:
@@ -371,6 +373,33 @@ class DatabaseManager:
         except AttributeError:
             print(f"Invalid date object: {date_obj}")
             return None
+
+    def update_past_due_tasks(self):
+        """Move all past due On-going tasks to the Missed category."""
+        # Get the category IDs
+        ongoing_cat_id_row = self._fetch_one("SELECT category_id FROM task_category WHERE category_name = ?", ("On-going",))
+        missed_cat_id_row = self._fetch_one("SELECT category_id FROM task_category WHERE category_name = ?", ("Missed",))
+        
+        if not ongoing_cat_id_row or not missed_cat_id_row:
+            print("Error: Could not find required categories.")
+            return False
+            
+        ongoing_category_id = ongoing_cat_id_row[0]
+        missed_category_id = missed_cat_id_row[0]
+        
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).strftime('%Y-%m-%d')
+        
+        # Update all past due tasks from On-going to Missed
+        query = """
+            UPDATE tasks 
+            SET category_id = ?
+            WHERE category_id = ? 
+            AND due_date < ?
+            AND due_date IS NOT NULL
+        """
+        
+        return self._execute_query(query, (missed_category_id, ongoing_category_id, current_local_date))
 
 # For testing the DatabaseManager separately
 if __name__ == '__main__':

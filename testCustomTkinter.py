@@ -215,7 +215,17 @@ class TimePlanApp(ctk.CTk):
         for widget in self.content.winfo_children():
             widget.destroy()
 
+    def update_past_due_tasks(self):
+        """Update any past due tasks from On-going to Missed category."""
+        if self.db_manager.update_past_due_tasks():
+            print("Successfully updated past due tasks.")
+        else:
+            print("Failed to update past due tasks.")
+
     def show_tasks_page(self, filter_type='All Tasks'):
+        # Update past due tasks before showing any task view
+        self.update_past_due_tasks()
+
         self.navbar.pack_forget()
         self.navbar.pack(side="left", fill="y", padx=(40, 0))
 
