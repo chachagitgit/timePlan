@@ -401,6 +401,37 @@ class DatabaseManager:
         
         return self._execute_query(query, (missed_category_id, ongoing_category_id, current_local_date))
 
+    # --- Recurring Tasks Management ---
+    def get_recurring_tasks(self, user_id):
+        """Get all recurring tasks for a user."""
+        query = """
+            SELECT id, title, description, start_date, recurrence_pattern, last_completed_date
+            FROM recurring_tasks
+            WHERE user_id = ?
+            ORDER BY start_date
+        """
+        return self._fetch_all(query, (user_id,))
+
+    def add_recurring_task(self, user_id, title, description, start_date, recurrence_pattern):
+        """Add a new recurring task."""
+        query = """
+            INSERT INTO recurring_tasks (user_id, title, description, start_date, recurrence_pattern)
+            VALUES (?, ?, ?, ?, ?)
+        """
+        if self._execute_query(query, (user_id, title, description, start_date, recurrence_pattern)):
+            result = self._fetch_one("SELECT last_insert_rowid()")
+            return result[0] if result else None
+        return None
+        
+    def update_recurring_task_completion(self, task_id, completed_date):
+        """Update the last completion date of a recurring task."""
+        query = """
+            UPDATE recurring_tasks
+            SET last_completed_date = ?
+            WHERE id = ?
+        """
+        return self._execute_query(query, (completed_date, task_id))
+
 # For testing the DatabaseManager separately
 if __name__ == '__main__':
     db_manager = DatabaseManager()
