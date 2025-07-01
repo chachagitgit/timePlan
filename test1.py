@@ -1674,25 +1674,6 @@ class TimePlanApp(ctk.CTk):
         y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
         
-        # Close button (X) in upper right
-        close_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        close_frame.pack(fill="x", padx=10, pady=5)
-        close_frame.place(relx=1.0, rely=0.0, anchor="ne", x=-10, y=10)
-        
-        close_button = ctk.CTkButton(
-            close_frame, 
-            text="✕",
-            width=20, 
-            height=20,
-            corner_radius=10,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#E0E0E0", 
-            text_color="#333333",
-            hover_color="#C0C0C0",
-            command=dialog.destroy
-        )
-        close_button.pack()
-        
         # Title
         ctk.CTkLabel(
             dialog,
@@ -1877,21 +1858,22 @@ class TimePlanApp(ctk.CTk):
         buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         buttons_frame.pack(fill="x", padx=20, pady=20)
         
-        # Delete button
-        ctk.CTkButton(
-            buttons_frame,
-            text="Delete",
-            fg_color="#FF5252",
-            hover_color="#FF1744",
-            command=delete_habit
-        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
-        
+        # Save button (now on the left)
         ctk.CTkButton(
             buttons_frame,
             text="Save",
             fg_color="#4CAF50",
             hover_color="#388E3C",
             command=save_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
+        
+        # Delete button (now on the right)
+        ctk.CTkButton(
+            buttons_frame,
+            text="Delete",
+            fg_color="#FF5252",
+            hover_color="#FF1744",
+            command=delete_habit
         ).pack(side="left", padx=(0, 10), fill="x", expand=True)
     
     def toggle_habit_completion(self, rtask_id, status_var):
