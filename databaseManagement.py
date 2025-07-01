@@ -474,7 +474,7 @@ class DatabaseManager:
         results = self._fetch_all(query, (rtask_id,))
         return [result[0] for result in results] if results else []
 
-    def update_recurring_task(self, rtask_id, title, description, start_date, recurrence_pattern):
+    def update_recurring_task(self, rtask_id, rtask_title, description, start_date, recurrence_pattern):
         """Update an existing recurring task."""
         query = """
             UPDATE recurring_tasks
@@ -484,7 +484,7 @@ class DatabaseManager:
                 recurrence_pattern = ?
             WHERE rtask_id = ?
         """
-        return self._execute_query(query, (title, description, start_date, recurrence_pattern, rtask_id))
+        return self._execute_query(query, (rtask_title, description, start_date, recurrence_pattern, rtask_id))
 
     def delete_recurring_task(self, rtask_id):
         """Delete a recurring task."""

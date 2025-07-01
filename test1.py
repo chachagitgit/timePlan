@@ -441,8 +441,8 @@ class TimePlanApp(ctk.CTk):
                 if date_key not in task_dates:
                     task_dates[date_key] = []
                 task_dates[date_key].append({
-                    'id': task_id,
-                    'title': title,
+                    'id': task_id,  # Keep as 'id' for consistency with create_task_card
+                    'title': title,  # Keep as 'title' for consistency with create_task_card
                     'description': description,
                     'priority': priority,
                     'due_date': date_key,
@@ -723,7 +723,7 @@ class TimePlanApp(ctk.CTk):
         if not task:
             return # Task not found, do not proceed
         
-        task_id, title, description, priority, due_date, category_name = task
+        task_id, task_title, description, priority, due_date, category_name = task
 
         # Create the detail pane if it doesn't exist
         if not hasattr(self, 'task_detail_pane'):
@@ -762,7 +762,7 @@ class TimePlanApp(ctk.CTk):
             self.edit_task_button.pack(side="bottom", fill="x", pady=10)
         
         # Update the detail pane content
-        self.task_detail_title.configure(text=title)
+        self.task_detail_title.configure(text=task_title)
         self.task_detail_description.configure(text=description if description else "No description provided.")
         self.task_detail_priority.configure(text=f"Priority: {priority}")
         self.task_detail_due_date.configure(text=f"Due Date: {due_date}" if due_date else "Due Date: Not set")
@@ -862,13 +862,13 @@ class TimePlanApp(ctk.CTk):
         if not self.selected_task:
             return # No task selected, do not proceed
         
-        title = self.edit_task_title_entry.get()
+        task_title = self.edit_task_title_entry.get()
         description = self.edit_task_description_entry.get()
         priority = self.edit_task_priority_optionmenu.get()
         due_date = self.edit_task_due_date_entry.get()
         category_name = self.edit_task_category_optionmenu.get()
 
-        if not title:
+        if not task_title:
             messagebox.showwarning("Warning", "Task title cannot be empty.")
             return
         
@@ -905,7 +905,7 @@ class TimePlanApp(ctk.CTk):
         # Get the current filter before updating
         current_filter = self.get_current_filter()
         
-        if self.db_manager.update_task(task_id, title, description, priority, due_date, category_id):
+        if self.db_manager.update_task(task_id, task_title, description, priority, due_date, category_id):
             # Show success popup
             messagebox.showinfo("Success", "Task updated successfully!")
               # Refresh the task list with the current filter
@@ -949,10 +949,6 @@ class TimePlanApp(ctk.CTk):
         # Unpack task data
         task_id, title, description, priority, due_date, category_name = task
         
-        # Clear existing content
-        for widget in self.detail_pane.winfo_children():
-            widget.destroy()
-            
         # Clear existing content in detail pane
         for widget in self.detail_pane.winfo_children():
             widget.destroy()
@@ -1101,10 +1097,11 @@ class TimePlanApp(ctk.CTk):
     def get_task_by_id(self, task_id):
         # Query the database for a specific task
         query = """
-            SELECT t.id, t.title, t.description, t.priority, t.due_date, tc.category_name 
+            SELECT t.task_id, t.task_title, t.description, p.priority_name, t.due_date, tc.category_name 
             FROM tasks t 
             JOIN task_category tc ON t.category_id = tc.category_id 
-            WHERE t.id = ?
+            LEFT JOIN priority p ON t.priority_id = p.priority_id
+            WHERE t.task_id = ?
         """
         result = self.db_manager._fetch_one(query, (task_id,))
         return result
@@ -1271,8 +1268,8 @@ class TimePlanApp(ctk.CTk):
         cancel_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
     
        
-    def save_task_edits(self, task_id, title, description, priority, due_date, category_name):
-        if not title:
+    def save_task_edits(self, task_id, task_title, description, priority, due_date, category_name):
+        if not task_title:
             messagebox.showwarning("Warning", "Task title cannot be empty.")
             return
             
@@ -1304,7 +1301,7 @@ class TimePlanApp(ctk.CTk):
         # Update task in database
         success = self.db_manager.update_task_details(
             task_id,
-            title=title,
+            task_title=task_title,
             description=description if description else None,
             priority=priority,
             due_date=due_date if due_date else None,
@@ -1579,10 +1576,10 @@ class TimePlanApp(ctk.CTk):
 
             # Search in database
             query = """
-                SELECT t.id, t.title, t.due_date, tc.category_name
+                SELECT t.task_id, t.task_title, t.due_date, tc.category_name
                 FROM tasks t
                 JOIN task_category tc ON t.category_id = tc.category_id
-                WHERE LOWER(t.title) LIKE ? AND t.user_id = ?
+                WHERE LOWER(t.task_title) LIKE ? AND t.user_id = ?
                 ORDER BY t.due_date DESC
             """
             search_pattern = f"%{search_text}%"
@@ -1622,7 +1619,7 @@ class TimePlanApp(ctk.CTk):
                     FROM tasks t 
                     JOIN task_category tc ON t.category_id = tc.category_id 
  
-                    WHERE t.id = ?
+                    WHERE t.task_id = ?
                 """
                 result = self.db_manager._fetch_one(query, (task_id,))
                 if result:
@@ -1646,10 +1643,10 @@ class TimePlanApp(ctk.CTk):
         MISSED_BG_COLOR = "#FFCDD2" # Light Red
         COMPLETED_BG_COLOR = "#C8E6C9" # Light Green
 
-        task_id = task['id']
+        task_id = task['id']  # Keep as 'id' since this is used for calendar view dictionary
         category_name = task['category']
         due_date = task.get('due_date', None)
-        title = task['title']
+        title = task['title']  # Keep as 'title' since this is used for calendar view dictionary
         description = task.get('description', '')
         priority = task.get('priority', '')
 
