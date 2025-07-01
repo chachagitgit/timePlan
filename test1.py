@@ -2134,6 +2134,8 @@ class TimePlanApp(ctk.CTk):
 
         # Dictionary to store task IDs mapped to their display strings
         task_map = {}
+        # Dictionary to store type of task (regular or recurring)
+        task_type = {}
 
         def on_search(*args):
             search_text = search_var.get().strip().lower()
@@ -2141,10 +2143,11 @@ class TimePlanApp(ctk.CTk):
                 results_label.configure(text="Enter at least 2 characters to search")
                 results_combobox['values'] = ()
                 task_map.clear()
+                task_type.clear()
                 return
 
-            # Search in database
-            query = """
+            # Search for regular tasks in database
+            regular_query = """
                 SELECT t.task_id, t.task_title, t.due_date, tc.category_name
                 FROM tasks t
                 JOIN task_category tc ON t.category_id = tc.category_id
@@ -2152,27 +2155,49 @@ class TimePlanApp(ctk.CTk):
                 ORDER BY t.due_date DESC
             """
             search_pattern = f"%{search_text}%"
-            results = self.db_manager._fetch_all(query, (search_pattern, self.current_user_id))
+            regular_results = self.db_manager._fetch_all(regular_query, (search_pattern, self.current_user_id))
+            
+            # Search for recurring tasks in database
+            recurring_query = """
+                SELECT rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date
+                FROM recurring_tasks
+                WHERE LOWER(rtask_title) LIKE ? AND user_id = ?
+                ORDER BY recurrence_pattern
+            """
+            recurring_results = self.db_manager._fetch_all(recurring_query, (search_pattern, self.current_user_id))
 
-            if not results:
+            if not regular_results and not recurring_results:
                 results_label.configure(text="No matching tasks found")
                 results_combobox['values'] = ()
                 task_map.clear()
+                task_type.clear()
                 return
 
             # Format results for display
             display_results = []
             task_map.clear()
+            task_type.clear()
             
-            for task_id, title, due_date, category in results:
+            # Add regular tasks
+            for task_id, title, due_date, category in regular_results:
                 if due_date:
                     display_text = f"{title} ({category} - Due: {due_date})"
                 else:
                     display_text = f"{title} ({category})"
                 display_results.append(display_text)
                 task_map[display_text] = task_id
+                task_type[display_text] = "regular"
+            
+            # Add recurring tasks
+            for rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date in recurring_results:
+                recurring_prefix = "🔄 "  # Add a recurring icon
+                display_text = f"{recurring_prefix}{rtask_title} (Recurring - {recurrence_pattern.capitalize()})"
+                display_results.append(display_text)
+                task_map[display_text] = rtask_id
+                task_type[display_text] = "recurring"
 
-            results_label.configure(text=f"Found {len(results)} matching tasks")
+            total_results = len(regular_results) + len(recurring_results)
+            results_label.configure(text=f"Found {total_results} matching tasks")
             results_combobox['values'] = display_results
             if display_results:
                 results_combobox.set(display_results[0])
@@ -2180,23 +2205,31 @@ class TimePlanApp(ctk.CTk):
         def on_select(event):
             selected = results_combobox.get()
             if selected and selected in task_map:
-                task_id = task_map[selected]
+                item_id = task_map[selected]
                 dialog.destroy()
-                               # Get the category of the selected task
-                query = """
-                    SELECT tc.category_name 
-                    FROM tasks t 
-                    JOIN task_category tc ON t.category_id = tc.category_id 
- 
-                    WHERE t.task_id = ?
-                """
-                result = self.db_manager._fetch_one(query, (task_id,))
-                if result:
-                    category_name = result[0]
-                    # Show the appropriate filtered page
-                    self.show_tasks_page(category_name)
-                    # Show the task details
-                    self.show_task_detail(task_id)
+                
+                if task_type[selected] == "regular":
+                    # Regular task selected
+                    # Get the category of the selected task
+                    query = """
+                        SELECT tc.category_name 
+                        FROM tasks t 
+                        JOIN task_category tc ON t.category_id = tc.category_id 
+                        WHERE t.task_id = ?
+                    """
+                    result = self.db_manager._fetch_one(query, (item_id,))
+                    if result:
+                        category_name = result[0]
+                        # Show the appropriate filtered page
+                        self.show_tasks_page(category_name)
+                        # Show the task details
+                        self.show_task_detail(item_id)
+                else:
+                    # Recurring task selected
+                    # Show the habit page
+                    self.show_habit_page()
+                    # Open the edit dialog for the recurring task
+                    self.show_edit_recurring_task_dialog(item_id)
 
         # Bind events
         search_var.trace('w', on_search)
