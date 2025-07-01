@@ -539,6 +539,14 @@ class DatabaseManager:
         else:
             print("created_at column already exists in tasks table.")
 
+    def is_recurring_task(self, task_id):
+        """Check if a task is marked as recurring by checking if it exists in the recurring_tasks table."""
+        query = """
+            SELECT COUNT(*) FROM recurring_tasks WHERE rtask_id = ?
+        """
+        result = self._fetch_one(query, (task_id,))
+        return result[0] > 0 if result else False
+
 # For testing the DatabaseManager separately
 if __name__ == '__main__':
     db_manager = DatabaseManager()
