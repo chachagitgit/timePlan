@@ -1,5 +1,3 @@
-# ok lahat, wala pang habit page
-
 import customtkinter as ctk
 import os
 from PIL import Image
@@ -157,7 +155,7 @@ class TimePlanApp(ctk.CTk):
         self.sidebar_buttons = []
         sidebar_buttons = [            ("Tasks", lambda: self.show_tasks_page('All Tasks')),
             ("Calendar", self.show_calendar_page),
-            ("Habit", None),
+            ("Habit", self.show_habit_page),
             ("Add Task", self.show_add_task_dialog),
             ("Search Task", self.show_search_dialog),
             ("Profile", None),
@@ -379,6 +377,21 @@ class TimePlanApp(ctk.CTk):
                     due_date_label.grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
                     due_date_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
                     due_date_label.configure(cursor="hand2")
+            
+            # Recurring task indicator (new)
+            is_recurring = self.db_manager.is_recurring_task(task_id)
+            if is_recurring:
+                recurring_label = ctk.CTkLabel(
+                    task_frame,
+                    text="🗓️ Recurring Task",
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    text_color="#4CAF50",
+                    anchor="se",
+                    justify="right"
+                )
+                recurring_label.grid(row=2, column=2, padx=10, pady=(0, 10), sticky="se")
+                recurring_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+                recurring_label.configure(cursor="hand2")
 
     def toggle_task_completion(self, task_id, status_var, current_category_name, current_filter_type):
         new_category_id = None
@@ -1170,7 +1183,8 @@ class TimePlanApp(ctk.CTk):
             form_frame, 
             text="Due Date:", 
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"        ).pack(anchor="w", pady=(5, 0))
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
         
         # Date entry and calendar in the same frame
         due_date_var = ctk.StringVar(value=due_date if due_date else "")
@@ -1230,104 +1244,706 @@ class TimePlanApp(ctk.CTk):
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
         
-        description_entry = ctk.CTkTextbox(form_frame, height=100, width=280)
+        description_textbox = ctk.CTkTextbox(form_frame, height=100, width=280)
         if description:
-            description_entry.insert("1.0", description)
-        description_entry.pack(anchor="w", pady=(0, 20), fill="x")
+            description_textbox.insert("1.0", description)
+        description_textbox.pack(anchor="w", pady=(0, 20), fill="x")
         
         # Button Frame
         btn_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(0, 20))
         
-        # Save button
-        save_btn = ctk.CTkButton(
-            btn_frame,
-            text="Save Changes",
-            command=lambda: self.save_task_edits(
-                task_id,
-                title_entry.get(),
-                description_entry.get("1.0", "end-1c"),
-                priority_menu.get(),
-                due_date_var.get(),
-                category_menu.get()
-            ),
-            fg_color="#A85BC2",
-            hover_color="#C576E0",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35
-        )
-        save_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
-        
-        # Cancel button
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
-            command=lambda: self.show_task_detail(task_id),
-            fg_color="#9E9E9E",
-            hover_color="#757575",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35        )
-        cancel_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
-    
-       
-    def save_task_edits(self, task_id, task_title, description, priority, due_date, category_name):
-        if not task_title:
-            messagebox.showwarning("Warning", "Task title cannot be empty.")
-            return
-            
-        # Validate date format if provided
-        if due_date:
-            try:
-                due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                
-                # Check if the due date has passed
-                current_date = datetime.now().date()
-                if due_date_obj < current_date and category_name != "Completed":
-                    # If due date has passed and task is not completed, it should be marked as Missed
-                    category_name = "Missed"
-                    messagebox.showinfo("Notice", "Due date has passed. Task category set to 'Missed'.")
-                
-            except ValueError:
-                messagebox.showwarning(
-                    "Warning", 
-                    "Due date must be in YYYY-MM-DD format (e.g., 2025-06-30)."
-                )
+        # Define save_habit function
+        def save_habit():
+            new_title = title_entry.get().strip()
+            new_category = category_menu.get()
+            new_due_date = due_date_var.get().strip()
+            new_priority = priority_menu.get()
+            new_description = description_textbox.get("1.0", ctk.END).strip()
+
+            if not new_title:
+                messagebox.showwarning("Warning", "Task title cannot be empty.")
                 return
+
+            if new_due_date:
+                try:
+                    datetime.strptime(new_due_date, '%Y-%m-%d')
+                except ValueError:
+                    messagebox.showwarning("Warning", "Due date must be in YYYY-MM-DD format (e.g., 2025-06-30).")
+                    return
+
+            category_id = self.db_manager.get_category_id_by_name(new_category)
+            if category_id is None:
+                messagebox.showwarning("Warning", "Invalid category selected.")
+                return
+
+            success = self.db_manager.update_task(
+                task_id,
+                new_title,
+                new_description if new_description else None,
+                new_priority,
+                new_due_date if new_due_date else None,
+                category_id
+            )
+            if success:
+                messagebox.showinfo("Success", "Task updated successfully!")
+                self.hide_task_detail()
+                self.show_tasks_page(self.get_current_filter())
+            else:
+                messagebox.showerror("Error", "Failed to update task.")
+
+        # Define delete_habit function
+        def delete_habit():
+            if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this task?"):
+                success = self.db_manager.delete_task(task_id)
+                if success:
+                    messagebox.showinfo("Success", "Task deleted successfully!")
+                    self.hide_task_detail()
+                    self.show_tasks_page(self.get_current_filter())
+                else:
+                    messagebox.showerror("Error", "Failed to delete task.")
+
+        # Save button (now on the left)
+        ctk.CTkButton(
+            btn_frame,
+            text="Save",
+            fg_color="#4CAF50",
+            hover_color="#388E3C",
+            command=save_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
         
-        # Get category ID from name
-        category_id = self.db_manager.get_category_id_by_name(category_name)
-        if not category_id:
-            messagebox.showwarning("Warning", f"Category '{category_name}' not found.")
-            return
+        # Delete button (now on the right)
+        ctk.CTkButton(
+            btn_frame,
+            text="Delete",
+            fg_color="#FF5252",
+            hover_color="#FF1744",
+            command=delete_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
+    
+    def show_habit_page(self):
+        """Display the habit page with recurring tasks grouped by recurrence pattern."""
+        # Hide any open detail pane
+        self.selected_task = None
+        self.detail_pane_visible = False
+        
+        # Hide task detail pane if it exists
+        if hasattr(self, 'task_detail_pane'):
+            self.task_detail_pane.pack_forget()
+        
+        # Hide calendar detail pane if it exists
+        if hasattr(self, 'detail_pane'):
+            self.detail_pane.pack_forget()
             
-        # Update task in database
-        success = self.db_manager.update_task_details(
-            task_id,
-            task_title=task_title,
-            description=description if description else None,
-            priority=priority,
-            due_date=due_date if due_date else None,
-            category_id=category_id
+        self.navbar.pack_forget()
+        self.content.pack_forget()
+        self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+        self.clear_content()
+        
+        # Set current page
+        self.current_page = "habit"
+        
+        # Add heading for the habit page
+        ctk.CTkLabel(
+            self.content,
+            text="Habits & Recurring Tasks",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(anchor="nw", pady=(10, 0), padx=10)
+        
+        # Create a scrollable frame for habits
+        habits_scroll_frame = ctk.CTkScrollableFrame(self.content, fg_color="transparent")
+        habits_scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Get all recurring tasks from the database
+        recurring_tasks = self.db_manager.get_recurring_tasks(user_id=self.current_user_id)
+        
+        # Group tasks by recurrence pattern
+        daily_tasks = []
+        monthly_tasks = []
+        annual_tasks = []
+        other_tasks = []
+        
+        for task in recurring_tasks:
+            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date = task
+            
+            if recurrence_pattern.lower() == 'daily':
+                daily_tasks.append(task)
+            elif recurrence_pattern.lower() == 'monthly':
+                monthly_tasks.append(task)
+            elif recurrence_pattern.lower() == 'annual' or recurrence_pattern.lower() == 'yearly':
+                annual_tasks.append(task)
+            else:
+                other_tasks.append(task)
+        
+        # Add button to create a new recurring task at the top
+        add_habit_btn = ctk.CTkButton(
+            habits_scroll_frame,
+            text="Create New Habit",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#C576E0",
+            hover_color="#A85BC2",
+            command=self.show_add_recurring_task_dialog
+        )
+        add_habit_btn.pack(pady=(0, 15), anchor="e", padx=10)
+        
+        # If no recurring tasks found
+        if not recurring_tasks:
+            ctk.CTkLabel(
+                habits_scroll_frame,
+                text="No recurring tasks found. Create your first habit!",
+                font=ctk.CTkFont(size=16),
+                text_color="#6A057F"
+            ).pack(pady=20)
+            return
+        
+        # Display Daily Tasks
+        if daily_tasks:
+            self._create_habit_section(habits_scroll_frame, "Daily Habits", daily_tasks)
+        
+        # Display Monthly Tasks
+        if monthly_tasks:
+            self._create_habit_section(habits_scroll_frame, "Monthly Habits", monthly_tasks)
+        
+        # Display Annual Tasks
+        if annual_tasks:
+            self._create_habit_section(habits_scroll_frame, "Annual Habits", annual_tasks)
+        
+        # Display Other Tasks with custom recurrence patterns
+        if other_tasks:
+            self._create_habit_section(habits_scroll_frame, "Other Recurring Tasks", other_tasks)
+    
+    def _create_habit_section(self, parent_frame, section_title, tasks):
+        """Helper method to create a section of habits with the given title and tasks."""
+        # Create a section frame with a title
+        section_frame = ctk.CTkFrame(parent_frame, fg_color="#F0E6F5", corner_radius=10)
+        section_frame.pack(fill="x", pady=8, padx=5)
+        
+        # Add section title
+        ctk.CTkLabel(
+            section_frame,
+            text=section_title,
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="nw", pady=(10, 5), padx=10)
+        
+        # Add a separator line
+        separator = ctk.CTkFrame(section_frame, height=2, fg_color="#D1B4E0")
+        separator.pack(fill="x", padx=10, pady=(0, 10))
+        
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).date()
+        
+        for task in tasks:
+            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date = task
+            
+            # Determine completion status and colors
+            is_completed_today = False
+            if last_completed_date:
+                try:
+                    last_completed_date_obj = datetime.strptime(last_completed_date, '%Y-%m-%d').date()
+                    is_completed_today = last_completed_date_obj == current_local_date
+                except ValueError:
+                    pass
+            
+            bg_color = "#C8E6C9" if is_completed_today else "white"  # Light green if completed today
+            
+            # Create task card
+            task_frame = ctk.CTkFrame(section_frame, fg_color=bg_color, corner_radius=8,
+                                    border_width=1, border_color="#E5C6F2")
+            task_frame.pack(fill="x", pady=5, padx=10)
+            
+            # Layout the task card
+            task_frame.grid_columnconfigure(0, weight=0)  # For checkbox
+            task_frame.grid_columnconfigure(1, weight=1)  # For title and description
+            task_frame.grid_columnconfigure(2, weight=0)  # For last completed
+            task_frame.grid_rowconfigure(0, weight=0)
+            task_frame.grid_rowconfigure(1, weight=0)
+            
+            # Create checkbox for completing the habit
+            status_var = ctk.StringVar(value="on" if is_completed_today else "off")
+            status_checkbox = ctk.CTkCheckBox(
+                task_frame, 
+                text="", 
+                variable=status_var,
+                onvalue="on", 
+                offvalue="off",
+                command=lambda tid=rtask_id, svar=status_var: self.toggle_habit_completion(tid, svar)
+            )
+            status_checkbox.grid(row=0, column=0, rowspan=2, padx=(10, 0), pady=10, sticky="nsew")
+            
+            # Prevent event propagation on checkbox
+            def prevent_propagation(e):
+                e.widget.focus_set()
+                return "break"
+            status_checkbox.bind("<Button-1>", prevent_propagation, add="+")
+            
+            # Display task title
+            ctk.CTkLabel(
+                task_frame, 
+                text=rtask_title, 
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color="#333333", 
+                anchor="w", 
+                wraplength=400
+            ).grid(row=0, column=1, padx=(10, 5), pady=(10, 0), sticky="ew")
+            
+            # Display task description if available
+            if description:
+                ctk.CTkLabel(
+                    task_frame, 
+                    text=description, 
+                    font=ctk.CTkFont(size=14),
+                    text_color="#666666", 
+                    anchor="w", 
+                    wraplength=400
+                ).grid(row=1, column=1, padx=(10, 5), pady=(0, 10), sticky="new")
+            
+            # Display last completed date if available
+            last_completed_text = f"Last done: {last_completed_date}" if last_completed_date else "Never completed"
+            ctk.CTkLabel(
+                task_frame, 
+                text=last_completed_text,
+                font=ctk.CTkFont(size=12),
+                text_color="#888888", 
+                anchor="e"
+            ).grid(row=0, column=2, padx=(5, 10), pady=(10, 0), sticky="ne")
+            
+            # Add edit button
+            edit_btn = ctk.CTkButton(
+                task_frame,
+                text="Edit",
+                font=ctk.CTkFont(size=12),
+                width=60,
+                height=24,
+                fg_color="#9575CD",
+                hover_color="#7E57C2",
+                command=lambda tid=rtask_id: self.show_edit_recurring_task_dialog(tid)
+            )
+            edit_btn.grid(row=1, column=2, padx=(5, 10), pady=(0, 10), sticky="se")
+    
+    def show_add_recurring_task_dialog(self):
+        """Show dialog to add a new recurring task."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Add New Habit")
+        dialog.geometry("500x450")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Title
+        ctk.CTkLabel(
+            dialog,
+            text="Create New Habit",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#6A057F"
+        ).pack(pady=(20, 10), padx=20)
+        
+        # Task title
+        ctk.CTkLabel(
+            dialog, 
+            text="Habit Title:",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        title_entry = ctk.CTkEntry(
+            dialog,
+            width=460,
+            placeholder_text="Enter habit title..."
+        )
+        title_entry.pack(padx=20, pady=5, fill="x")
+        
+        # Description
+        ctk.CTkLabel(
+            dialog,
+            text="Description (Optional):",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        description_entry = ctk.CTkEntry(
+            dialog,
+            width=460,
+            placeholder_text="Enter habit description..."
+        )
+        description_entry.pack(padx=20, pady=5, fill="x")
+        
+        # Start date
+        ctk.CTkLabel(
+            dialog,
+            text="Start Date:",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        def pick_date():
+            date_dialog = ctk.CTkToplevel(dialog)
+            date_dialog.title("Select Date")
+            date_dialog.geometry("300x300")
+            date_dialog.transient(dialog)
+            date_dialog.grab_set()
+            
+            cal = Calendar(date_dialog, selectmode='day', date_pattern='yyyy-mm-dd')
+            cal.pack(pady=20)
+            
+            def set_date():
+                selected_date = cal.get_date()
+                start_date_entry.delete(0, ctk.END)
+                start_date_entry.insert(0, selected_date)
+                date_dialog.destroy()
+            
+            ctk.CTkButton(
+                date_dialog,
+                text="Select",
+                command=set_date
+            ).pack(pady=10)
+        
+        date_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        date_frame.pack(fill="x", padx=20, pady=5)
+        
+        start_date_entry = ctk.CTkEntry(date_frame, width=360)
+        start_date_entry.pack(side="left", fill="x", expand=True)
+        
+        # Set default date to today
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).date().strftime('%Y-%m-%d')
+        start_date_entry.insert(0, current_local_date)
+        
+        date_picker_btn = ctk.CTkButton(
+            date_frame,
+            text="📅",
+            width=30,
+            command=pick_date
+        )
+        date_picker_btn.pack(side="right", padx=(5, 0))
+        
+        # Recurrence pattern
+        ctk.CTkLabel(
+            dialog,
+            text="Recurrence Pattern:",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        recurrence_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        recurrence_frame.pack(fill="x", padx=20, pady=5)
+        
+        recurrence_var = ctk.StringVar(value="Daily")
+        recurrence_options = ["Daily", "Weekly", "Monthly", "Annual"]
+        
+        for i, option in enumerate(recurrence_options):
+            recurrence_btn = ctk.CTkRadioButton(
+                recurrence_frame,
+                text=option,
+                variable=recurrence_var,
+                value=option,
+                font=ctk.CTkFont(size=14)
+            )
+            recurrence_btn.pack(side="left", padx=(0 if i == 0 else 10, 0))
+        
+        # Buttons
+        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons_frame.pack(fill="x", padx=20, pady=20)
+        
+        ctk.CTkButton(
+            buttons_frame,
+            text="Cancel",
+            fg_color="#E0E0E0",
+            text_color="#333333",
+            hover_color="#C0C0C0",
+            command=dialog.destroy
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
+        
+        def save_habit():
+            rtask_title = title_entry.get().strip()
+            description = description_entry.get().strip()
+            start_date = start_date_entry.get().strip()
+            recurrence_pattern = recurrence_var.get()
+            
+            if not rtask_title:
+                messagebox.showwarning("Warning", "Please enter a habit title.")
+                return
+                
+            # Add the habit to the database
+            success = self.db_manager.add_recurring_task(
+                self.current_user_id,
+                rtask_title,
+                description if description else None,
+                start_date,
+                recurrence_pattern
+            )
+            
+            if success:
+                messagebox.showinfo("Success", "New habit created successfully!")
+                dialog.destroy()
+                # Refresh the habit page
+                if self.current_page == "habit":
+                    self.show_habit_page()
+            else:
+                messagebox.showerror("Error", "Failed to create habit. Please try again.")
+        
+        ctk.CTkButton(
+            buttons_frame,
+            text="Save",
+            fg_color="#C576E0",
+            hover_color="#A85BC2",
+            command=save_habit
+        ).pack(side="right", fill="x", expand=True)
+    
+    def show_edit_recurring_task_dialog(self, rtask_id):
+        """Show dialog to edit an existing recurring task."""
+        # Get the recurring task from database
+        tasks = self.db_manager._fetch_all(
+            "SELECT rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date FROM recurring_tasks WHERE rtask_id = ?", 
+            (rtask_id,)
         )
         
-        if success:
-            # Show success popup
-            messagebox.showinfo("Success", "Task updated successfully!")
+        if not tasks or len(tasks) == 0:
+            messagebox.showerror("Error", "Recurring task not found.")
+            return
+        
+        task = tasks[0]
+        rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date = task
+        
+        # Create dialog
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Edit Habit")
+        dialog.geometry("500x490")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Title
+        ctk.CTkLabel(
+            dialog,
+            text="Edit Habit",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#6A057F"
+        ).pack(pady=(20, 10), padx=20)
+        
+        # Task title
+        ctk.CTkLabel(
+            dialog, 
+            text="Habit Title:",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        title_entry = ctk.CTkEntry(
+            dialog,
+            width=460,
+            placeholder_text="Enter habit title..."
+        )
+        title_entry.insert(0, rtask_title)
+        title_entry.pack(padx=20, pady=5, fill="x")
+        
+        # Description
+        ctk.CTkLabel(
+            dialog,
+            text="Description (Optional):",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        description_entry = ctk.CTkEntry(
+            dialog,
+            width=460,
+            placeholder_text="Enter habit description..."
+        )
+        if description:
+            description_entry.insert(0, description)
+        description_entry.pack(padx=20, pady=5, fill="x")
+        
+        # Start date
+        ctk.CTkLabel(
+            dialog,
+            text="Start Date:",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        def pick_date():
+            date_dialog = ctk.CTkToplevel(dialog)
+            date_dialog.title("Select Date")
+            date_dialog.geometry("300x300")
+            date_dialog.transient(dialog)
+            date_dialog.grab_set()
             
-            # Determine which page to return to based on where the user came from
-            if self.current_page == "calendar":
-                # If user was on calendar page, return there
-                self.show_calendar_page()
-            else:
-                # Otherwise, return to task list with the current filter
-                current_filter = self.get_current_filter()
-                self.show_tasks_page(current_filter)
+            cal = Calendar(date_dialog, selectmode='day', date_pattern='yyyy-mm-dd')
+            cal.pack(pady=20)
             
-            # Show updated task details
-            self.show_task_detail(task_id)
+            def set_date():
+                selected_date = cal.get_date()
+                start_date_entry.delete(0, ctk.END)
+                start_date_entry.insert(0, selected_date)
+                date_dialog.destroy()
+            
+            ctk.CTkButton(
+                date_dialog,
+                text="Select",
+                command=set_date
+            ).pack(pady=10)
+        
+        date_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        date_frame.pack(fill="x", padx=20, pady=5)
+        
+        start_date_entry = ctk.CTkEntry(date_frame, width=360)
+        start_date_entry.pack(side="left", fill="x", expand=True)
+        
+        if start_date:
+            start_date_entry.insert(0, start_date)
         else:
-            messagebox.showerror("Error", "Failed to update task.")
+            # Set default date to today
+            philippines_timezone = pytz.timezone('Asia/Manila')
+            current_local_date = datetime.now(philippines_timezone).date().strftime('%Y-%m-%d')
+            start_date_entry.insert(0, current_local_date)
+        
+        date_picker_btn = ctk.CTkButton(
+            date_frame,
+            text="📅",
+            width=30,
+            command=pick_date
+        )
+        date_picker_btn.pack(side="right", padx=(5, 0))
+        
+        # Recurrence pattern
+        ctk.CTkLabel(
+            dialog,
+            text="Recurrence Pattern:",
+            font=ctk.CTkFont(size=14),
+            anchor="w"
+        ).pack(anchor="w", padx=20, pady=(10, 0))
+        
+        recurrence_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        recurrence_frame.pack(fill="x", padx=20, pady=5)
+        
+        recurrence_var = ctk.StringVar(value=recurrence_pattern.capitalize() if recurrence_pattern else "Daily")
+        recurrence_options = ["Daily", "Weekly", "Monthly", "Annual"]
+        
+        for i, option in enumerate(recurrence_options):
+            recurrence_btn = ctk.CTkRadioButton(
+                recurrence_frame,
+                text=option,
+                variable=recurrence_var,
+                value=option,
+                font=ctk.CTkFont(size=14)
+            )
+            recurrence_btn.pack(side="left", padx=(0 if i == 0 else 10, 0))
+        
+        # Last completed date (display only)
+        if last_completed_date:
+            # Create a frame for the last completed date to place it on the right
+            last_completed_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            last_completed_frame.pack(fill="x", padx=20, pady=(10, 0))
+            
+            # Add explanation text
+            ctk.CTkLabel(
+                last_completed_frame,
+                text="Last done:",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#6A057F"
+            ).pack(side="left")
+            
+            # Add date
+            ctk.CTkLabel(
+                last_completed_frame,
+                text=last_completed_date,
+                font=ctk.CTkFont(size=14, slant="italic"),
+                text_color="#888888"
+            ).pack(side="left", padx=(5, 0))
+        
+        # Define action functions
+        def delete_habit():
+            if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this habit?"):
+                success = self.db_manager.delete_recurring_task(rtask_id)
+                if success:
+                    messagebox.showinfo("Success", "Habit deleted successfully!")
+                    dialog.destroy()
+                    # Refresh the habit page
+                    if self.current_page == "habit":
+                        self.show_habit_page()
+                else:
+                    messagebox.showerror("Error", "Failed to delete habit. Please try again.")
+        
+        def save_habit():
+            new_rtask_title = title_entry.get().strip()
+            new_description = description_entry.get().strip()
+            new_start_date = start_date_entry.get().strip()
+            new_recurrence_pattern = recurrence_var.get().lower()
+            
+            if not new_rtask_title:
+                messagebox.showwarning("Warning", "Please enter a habit title.")
+                return
+            
+            # Update the habit in the database
+            success = self.db_manager.update_recurring_task(
+                rtask_id,
+                new_rtask_title,
+                new_description if new_description else None,
+                new_start_date,
+                new_recurrence_pattern
+            )
+            
+            if success:
+                messagebox.showinfo("Success", "Habit updated successfully!")
+                dialog.destroy()
+                # Refresh the habit page
+                if self.current_page == "habit":
+                    self.show_habit_page()
+            else:
+                messagebox.showerror("Error", "Failed to update habit. Please try again.")
+        
+        # Buttons
+        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons_frame.pack(fill="x", padx=20, pady=20)
+        
+        # Save button (now on the left)
+        ctk.CTkButton(
+            buttons_frame,
+            text="Save",
+            fg_color="#4CAF50",
+            hover_color="#388E3C",
+            command=save_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
+        
+        # Delete button (now on the right)
+        ctk.CTkButton(
+            buttons_frame,
+            text="Delete",
+            fg_color="#FF5252",
+            hover_color="#FF1744",
+            command=delete_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
     
+    def toggle_habit_completion(self, rtask_id, status_var):
+        """Toggle completion status of a recurring task."""
+        philippines_timezone = pytz.timezone('Asia/Manila')
+        current_local_date = datetime.now(philippines_timezone).date().strftime('%Y-%m-%d')
+        
+        if status_var.get() == "on":
+            # Mark as completed today
+            self.db_manager.update_recurring_task_completion(rtask_id, current_local_date)
+        else:
+            # Mark as not completed (remove completion date)
+            self.db_manager._execute_query(
+                "UPDATE recurring_tasks SET last_completed_date = NULL WHERE rtask_id = ?", 
+                (rtask_id,)
+            )
+        
+        # Refresh the habit page to show updated status
+        self.show_habit_page()
+
     def confirm_delete_task(self, task_id):
         confirm = messagebox.askyesno(
             title="Confirm Delete",
@@ -1350,6 +1966,7 @@ class TimePlanApp(ctk.CTk):
                 if self.current_page == "calendar":
                     # If user was on calendar page, return there
                     self.show_calendar_page()
+                              
                 else:
                     # Otherwise, refresh the task list with the current filter
                     self.show_tasks_page(current_filter)
@@ -1435,14 +2052,14 @@ class TimePlanApp(ctk.CTk):
         priority_menu.pack(fill="x", pady=(0, 15))
 
         # Due Date
-        ctk.CTkLabel(scroll_container, text="Due Date:", font=ctk.CTkFont(size=14, weight="bold"), text_color="#6A057F").pack(anchor="w")
+        ctk.CTkLabel(scroll_container, text="Due Date:", font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(anchor="w")
         due_date_var = ctk.StringVar()
         due_date_entry = ctk.CTkEntry(scroll_container, textvariable=due_date_var)
         due_date_entry.pack(fill="x", pady=(0, 5))
 
         # Calendar Frame
         calendar_frame = ctk.CTkFrame(scroll_container, fg_color="#FFFFFF", corner_radius=5)
-        calendar_frame.pack(fill="x", pady=(0, 15), padx=5)
+        calendar_frame.pack(fill="x", pady=(0, 10), padx=5)
 
         cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
                       background="#FFFFFF",
@@ -1567,6 +2184,8 @@ class TimePlanApp(ctk.CTk):
 
         # Dictionary to store task IDs mapped to their display strings
         task_map = {}
+        # Dictionary to store type of task (regular or recurring)
+        task_type = {}
 
         def on_search(*args):
             search_text = search_var.get().strip().lower()
@@ -1574,10 +2193,11 @@ class TimePlanApp(ctk.CTk):
                 results_label.configure(text="Enter at least 2 characters to search")
                 results_combobox['values'] = ()
                 task_map.clear()
+                task_type.clear()
                 return
 
-            # Search in database
-            query = """
+            # Search for regular tasks in database
+            regular_query = """
                 SELECT t.task_id, t.task_title, t.due_date, tc.category_name
                 FROM tasks t
                 JOIN task_category tc ON t.category_id = tc.category_id
@@ -1585,27 +2205,49 @@ class TimePlanApp(ctk.CTk):
                 ORDER BY t.due_date DESC
             """
             search_pattern = f"%{search_text}%"
-            results = self.db_manager._fetch_all(query, (search_pattern, self.current_user_id))
+            regular_results = self.db_manager._fetch_all(regular_query, (search_pattern, self.current_user_id))
+            
+            # Search for recurring tasks in database
+            recurring_query = """
+                SELECT rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date
+                FROM recurring_tasks
+                WHERE LOWER(rtask_title) LIKE ? AND user_id = ?
+                ORDER BY recurrence_pattern
+            """
+            recurring_results = self.db_manager._fetch_all(recurring_query, (search_pattern, self.current_user_id))
 
-            if not results:
+            if not regular_results and not recurring_results:
                 results_label.configure(text="No matching tasks found")
                 results_combobox['values'] = ()
                 task_map.clear()
+                task_type.clear()
                 return
 
             # Format results for display
             display_results = []
             task_map.clear()
+            task_type.clear()
             
-            for task_id, title, due_date, category in results:
+            # Add regular tasks
+            for task_id, title, due_date, category in regular_results:
                 if due_date:
                     display_text = f"{title} ({category} - Due: {due_date})"
                 else:
                     display_text = f"{title} ({category})"
                 display_results.append(display_text)
                 task_map[display_text] = task_id
+                task_type[display_text] = "regular"
+            
+            # Add recurring tasks
+            for rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date in recurring_results:
+                recurring_prefix = "🔄 "  # Add a recurring icon
+                display_text = f"{recurring_prefix}{rtask_title} (Recurring - {recurrence_pattern.capitalize()})"
+                display_results.append(display_text)
+                task_map[display_text] = rtask_id
+                task_type[display_text] = "recurring"
 
-            results_label.configure(text=f"Found {len(results)} matching tasks")
+            total_results = len(regular_results) + len(recurring_results)
+            results_label.configure(text=f"Found {total_results} matching tasks")
             results_combobox['values'] = display_results
             if display_results:
                 results_combobox.set(display_results[0])
@@ -1613,23 +2255,31 @@ class TimePlanApp(ctk.CTk):
         def on_select(event):
             selected = results_combobox.get()
             if selected and selected in task_map:
-                task_id = task_map[selected]
+                item_id = task_map[selected]
                 dialog.destroy()
-                               # Get the category of the selected task
-                query = """
-                    SELECT tc.category_name 
-                    FROM tasks t 
-                    JOIN task_category tc ON t.category_id = tc.category_id 
- 
-                    WHERE t.task_id = ?
-                """
-                result = self.db_manager._fetch_one(query, (task_id,))
-                if result:
-                    category_name = result[0]
-                    # Show the appropriate filtered page
-                    self.show_tasks_page(category_name)
-                    # Show the task details
-                    self.show_task_detail(task_id)
+                
+                if task_type[selected] == "regular":
+                    # Regular task selected
+                    # Get the category of the selected task
+                    query = """
+                        SELECT tc.category_name 
+                        FROM tasks t 
+                        JOIN task_category tc ON t.category_id = tc.category_id 
+                        WHERE t.task_id = ?
+                    """
+                    result = self.db_manager._fetch_one(query, (item_id,))
+                    if result:
+                        category_name = result[0]
+                        # Show the appropriate filtered page
+                        self.show_tasks_page(category_name)
+                        # Show the task details
+                        self.show_task_detail(item_id)
+                else:
+                    # Recurring task selected
+                    # Show the habit page
+                    self.show_habit_page()
+                    # Open the edit dialog for the recurring task
+                    self.show_edit_recurring_task_dialog(item_id)
 
         # Bind events
         search_var.trace('w', on_search)
@@ -1682,8 +2332,8 @@ class TimePlanApp(ctk.CTk):
         
         # Grid configuration for consistent layout
         task_frame.grid_columnconfigure(0, weight=0)  # For checkbox
-        task_frame.grid_columnconfigure(1, weight=1)  # For main content
-        task_frame.grid_columnconfigure(2, weight=0)  # For category/date
+        task_frame.grid_columnconfigure(1, weight=1)  # For title and description
+        task_frame.grid_columnconfigure(2, weight=0)  # For last completed
         task_frame.grid_rowconfigure(0, weight=0)
         task_frame.grid_rowconfigure(1, weight=0)
         task_frame.grid_rowconfigure(2, weight=1)
@@ -1722,7 +2372,7 @@ class TimePlanApp(ctk.CTk):
             anchor="w",
             wraplength=400
         )
-        title_label.grid(row=0, column=1, padx=(10, 5), pady=(10,0), sticky="ew")
+        title_label.grid(row=0, column=1, padx=(10, 5), pady=(10, 0), sticky="ew")
         title_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
         title_label.configure(cursor="hand2")
 
@@ -1799,6 +2449,9 @@ class TimePlanApp(ctk.CTk):
             due_date_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
             due_date_label.configure(cursor="hand2")
             
+        # For regular tasks, we don't need to check if they're recurring
+        # Since regular tasks and recurring tasks are in separate tables
+        # If you want to link them in the future, you could add a recurring_task_id reference in the tasks table
 # Application entry point
 if __name__ == "__main__":
     app = TimePlanApp()

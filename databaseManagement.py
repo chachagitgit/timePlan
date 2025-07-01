@@ -130,6 +130,7 @@ class DatabaseManager:
                 recurrence_pattern    TEXT    NOT NULL,
                 last_completed_date TEXT,
                 user_id               INTEGER NOT NULL,
+                status              TEXT    DEFAULT 'Pending',
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             );
         """)
@@ -425,14 +426,35 @@ class DatabaseManager:
 
     # --- Recurring Tasks Management ---
     def get_recurring_tasks(self, user_id):
-        """Get all recurring tasks for a user."""
+        """Get all recurring tasks for a user and calculate their current status."""
         query = """
-            SELECT rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date
+            SELECT rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date, status
             FROM recurring_tasks
             WHERE user_id = ?
             ORDER BY start_date
         """
-        return self._fetch_all(query, (user_id,))
+        tasks = self._fetch_all(query, (user_id,))
+        
+        # Update the status of each task based on its recurrence pattern and last completed date
+        updated_tasks = []
+        for task in tasks:
+            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date, current_status = task
+            
+            # Calculate the correct status
+            correct_status = self._calculate_recurring_task_status(recurrence_pattern, last_completed_date)
+            
+            # Update the database if the status has changed
+            if correct_status != current_status:
+                self._execute_query(
+                    "UPDATE recurring_tasks SET status = ? WHERE rtask_id = ?", 
+                    (correct_status, rtask_id)
+                )
+            
+            # Include the updated status in the result
+            updated_task = (rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date, correct_status)
+            updated_tasks.append(updated_task)
+            
+        return updated_tasks
 
     def add_recurring_task(self, user_id, rtask_title, description, start_date, recurrence_pattern):
         """Add a new recurring task."""
@@ -446,19 +468,19 @@ class DatabaseManager:
         return None
         
     def update_recurring_task_completion(self, rtask_id, completed_date):
-        """Update the last completion date of a recurring task."""
+        """Update the last completion date of a recurring task and set status to 'Completed'."""
         query = """
             UPDATE recurring_tasks
-            SET last_completed_date = ?
+            SET last_completed_date = ?, status = 'Completed'
             WHERE rtask_id = ?
         """
         return self._execute_query(query, (completed_date, rtask_id))
 
     def remove_recurring_task_completion(self, rtask_id, completed_date):
-        """Remove completion date for a recurring task (set last_completed_date to NULL if it matches the date)."""
+        """Remove completion date for a recurring task and set status to 'Pending'."""
         query = """
             UPDATE recurring_tasks
-            SET last_completed_date = NULL
+            SET last_completed_date = NULL, status = 'Pending'
             WHERE rtask_id = ? AND last_completed_date = ?
         """
         return self._execute_query(query, (rtask_id, completed_date))
@@ -546,6 +568,61 @@ class DatabaseManager:
         """
         result = self._fetch_one(query, (task_id,))
         return result[0] > 0 if result else False
+
+    def _calculate_recurring_task_status(self, recurrence_pattern, last_completed_date):
+        """
+        Calculate the current status of a recurring task based on its recurrence pattern and last completion date.
+        
+        Args:
+            recurrence_pattern: The pattern of recurrence (daily, weekly, monthly, annual)
+            last_completed_date: The last date the task was completed
+            
+        Returns:
+            'Completed' if the task is completed within the current period, 'Pending' otherwise
+        """
+        if not last_completed_date:
+            return 'Pending'
+            
+        # Convert string date to datetime.date object
+        try:
+            last_completed = datetime.strptime(last_completed_date, '%Y-%m-%d').date()
+        except ValueError:
+            print(f"Invalid last_completed_date format: {last_completed_date}. Expected format: YYYY-MM-DD")
+            return 'Pending'
+        
+        # Get current date in PH timezone
+        current_date = self._get_current_local_date()
+        
+        # Check status based on recurrence pattern
+        recurrence_pattern = recurrence_pattern.lower()
+        
+        if recurrence_pattern == 'daily':
+            # For daily tasks, check if completed today
+            return 'Completed' if last_completed == current_date else 'Pending'
+            
+        elif recurrence_pattern == 'weekly':
+            # For weekly tasks, check if completed this week (starting Sunday)
+            # Calculate the start of the current week (Sunday)
+            days_since_sunday = current_date.weekday() + 1  # +1 because weekday() returns 0 for Monday, we want 0 for Sunday
+            if days_since_sunday == 7:  # If it's Sunday, days_since_sunday should be 0
+                days_since_sunday = 0
+            start_of_week = current_date - timedelta(days=days_since_sunday)
+            
+            # Check if last completion date is within the current week
+            return 'Completed' if last_completed >= start_of_week else 'Pending'
+            
+        elif recurrence_pattern == 'monthly':
+            # For monthly tasks, check if completed this month
+            return 'Completed' if (last_completed.year == current_date.year and 
+                                  last_completed.month == current_date.month) else 'Pending'
+            
+        elif recurrence_pattern in ['annual', 'yearly']:
+            # For annual tasks, check if completed this year
+            return 'Completed' if last_completed.year == current_date.year else 'Pending'
+            
+        else:
+            # For any other pattern, default to checking if completed today
+            return 'Completed' if last_completed == current_date else 'Pending'
 
 # For testing the DatabaseManager separately
 if __name__ == '__main__':
