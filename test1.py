@@ -1453,7 +1453,7 @@ class TimePlanApp(ctk.CTk):
             last_completed_text = f"Last done: {last_completed_date}" if last_completed_date else "Never completed"
             ctk.CTkLabel(
                 task_frame, 
-                text=last_completed_date,
+                text=last_completed_text,
                 font=ctk.CTkFont(size=12),
                 text_color="#888888", 
                 anchor="e"
@@ -1674,6 +1674,25 @@ class TimePlanApp(ctk.CTk):
         y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
         dialog.geometry(f"+{x}+{y}")
         
+        # Close button (X) in upper right
+        close_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        close_frame.pack(fill="x", padx=10, pady=5)
+        close_frame.place(relx=1.0, rely=0.0, anchor="ne", x=-10, y=10)
+        
+        close_button = ctk.CTkButton(
+            close_frame, 
+            text="✕",
+            width=20, 
+            height=20,
+            corner_radius=10,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#E0E0E0", 
+            text_color="#333333",
+            hover_color="#C0C0C0",
+            command=dialog.destroy
+        )
+        close_button.pack()
+        
         # Title
         ctk.CTkLabel(
             dialog,
@@ -1793,18 +1812,27 @@ class TimePlanApp(ctk.CTk):
         
         # Last completed date (display only)
         if last_completed_date:
+            # Create a frame for the last completed date to place it on the right
+            last_completed_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+            last_completed_frame.pack(fill="x", padx=20, pady=(10, 0))
+            
+            # Add explanation text
             ctk.CTkLabel(
-                dialog,
-                text=f"Last Completed: {last_completed_date}",
+                last_completed_frame,
+                text="Last done:",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#6A057F"
+            ).pack(side="left")
+            
+            # Add date
+            ctk.CTkLabel(
+                last_completed_frame,
+                text=last_completed_date,
                 font=ctk.CTkFont(size=14, slant="italic"),
                 text_color="#888888"
-            ).pack(anchor="w", padx=20, pady=(10, 0))
+            ).pack(side="left", padx=(5, 0))
         
-        # Buttons
-        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        buttons_frame.pack(fill="x", padx=20, pady=20)
-        
-        # Delete button
+        # Define action functions
         def delete_habit():
             if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this habit?"):
                 success = self.db_manager.delete_recurring_task(rtask_id)
@@ -1817,33 +1845,16 @@ class TimePlanApp(ctk.CTk):
                 else:
                     messagebox.showerror("Error", "Failed to delete habit. Please try again.")
         
-        ctk.CTkButton(
-            buttons_frame,
-            text="Delete",
-            fg_color="#FF5252",
-            hover_color="#FF1744",
-            command=delete_habit
-        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
-        
-        ctk.CTkButton(
-            buttons_frame,
-            text="Cancel",
-            fg_color="#E0E0E0",
-            text_color="#333333",
-            hover_color="#C0C0C0",
-            command=dialog.destroy
-        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
-        
         def save_habit():
             new_rtask_title = title_entry.get().strip()
             new_description = description_entry.get().strip()
             new_start_date = start_date_entry.get().strip()
-            new_recurrence_pattern = recurrence_var.get()
+            new_recurrence_pattern = recurrence_var.get().lower()
             
             if not new_rtask_title:
                 messagebox.showwarning("Warning", "Please enter a habit title.")
                 return
-                
+            
             # Update the habit in the database
             success = self.db_manager.update_recurring_task(
                 rtask_id,
@@ -1861,6 +1872,27 @@ class TimePlanApp(ctk.CTk):
                     self.show_habit_page()
             else:
                 messagebox.showerror("Error", "Failed to update habit. Please try again.")
+        
+        # Buttons
+        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons_frame.pack(fill="x", padx=20, pady=20)
+        
+        # Delete button
+        ctk.CTkButton(
+            buttons_frame,
+            text="Delete",
+            fg_color="#FF5252",
+            hover_color="#FF1744",
+            command=delete_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
+        
+        ctk.CTkButton(
+            buttons_frame,
+            text="Save",
+            fg_color="#4CAF50",
+            hover_color="#388E3C",
+            command=save_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
     
     def toggle_habit_completion(self, rtask_id, status_var):
         """Toggle completion status of a recurring task."""
