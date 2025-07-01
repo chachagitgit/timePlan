@@ -1474,12 +1474,12 @@ class TimePlanApp(ctk.CTk):
             category_id = self.determine_category_by_date(due_date)
 
             success = self.db_manager.add_task(
-                title=title,
-                description=description if description else None,
-                priority=priority,
-                due_date=due_date if due_date else None,
-                category_id=category_id,
-                user_id=self.current_user_id
+                self.current_user_id,
+                title,
+                description if description else None,
+                priority,
+                due_date if due_date else None,
+                category_id
             )
 
             if success:
