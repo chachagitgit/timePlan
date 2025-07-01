@@ -1253,38 +1253,88 @@ class TimePlanApp(ctk.CTk):
         btn_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(0, 20))
         
-        # Save button
-        save_btn = ctk.CTkButton(
-            btn_frame,
-            text="Save Changes",
-            command=lambda: self.save_task_edits(
+        # Define save_habit function
+        def save_habit():
+            new_title = title_entry.get().strip()
+            new_category = category_menu.get()
+            new_due_date = due_date_var.get().strip()
+            new_priority = priority_menu.get()
+            new_description = description_textbox.get("1.0", ctk.END).strip()
+
+            if not new_title:
+                messagebox.showwarning("Warning", "Task title cannot be empty.")
+                return
+
+            if new_due_date:
+                try:
+                    datetime.strptime(new_due_date, '%Y-%m-%d')
+                except ValueError:
+                    messagebox.showwarning("Warning", "Due date must be in YYYY-MM-DD format (e.g., 2025-06-30).")
+                    return
+
+            category_id = self.db_manager.get_category_id_by_name(new_category)
+            if category_id is None:
+                messagebox.showwarning("Warning", "Invalid category selected.")
+                return
+
+            success = self.db_manager.update_task(
                 task_id,
-                title_entry.get(),
-                description_textbox.get("1.0", "end-1c"),
-                priority_menu.get(),
-                due_date_var.get(),
-                category_menu.get()
-            ),
-            fg_color="#A85BC2",
-            hover_color="#C576E0",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35
-        )
-        save_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
-        
-        # Cancel button
-        cancel_btn = ctk.CTkButton(
+                new_title,
+                new_description if new_description else None,
+                new_priority,
+                new_due_date if new_due_date else None,
+                category_id
+            )
+            if success:
+                messagebox.showinfo("Success", "Task updated successfully!")
+                self.hide_task_detail()
+                self.show_tasks_page(self.get_current_filter())
+            else:
+                messagebox.showerror("Error", "Failed to update task.")
+
+        # Define delete_habit function
+        def delete_habit():
+            if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this task?"):
+                success = self.db_manager.delete_task(task_id)
+                if success:
+                    messagebox.showinfo("Success", "Task deleted successfully!")
+                    self.hide_task_detail()
+                    self.show_tasks_page(self.get_current_filter())
+                else:
+                    messagebox.showerror("Error", "Failed to delete task.")
+
+        # Save button (now on the left)
+        ctk.CTkButton(
             btn_frame,
-            text="Cancel",
-            command=lambda: self.show_task_detail(task_id),
-            fg_color="#9E9E9E",
-            hover_color="#757575",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=35        )
-        cancel_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
+            text="Save",
+            fg_color="#4CAF50",
+            hover_color="#388E3C",
+            command=save_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
+        
+        # Delete button (now on the right)
+        ctk.CTkButton(
+            btn_frame,
+            text="Delete",
+            fg_color="#FF5252",
+            hover_color="#FF1744",
+            command=delete_habit
+        ).pack(side="left", padx=(0, 10), fill="x", expand=True)
     
     def show_habit_page(self):
         """Display the habit page with recurring tasks grouped by recurrence pattern."""
+        # Hide any open detail pane
+        self.selected_task = None
+        self.detail_pane_visible = False
+        
+        # Hide task detail pane if it exists
+        if hasattr(self, 'task_detail_pane'):
+            self.task_detail_pane.pack_forget()
+        
+        # Hide calendar detail pane if it exists
+        if hasattr(self, 'detail_pane'):
+            self.detail_pane.pack_forget()
+            
         self.navbar.pack_forget()
         self.content.pack_forget()
         self.content.pack(side="left", fill="both", expand=True, padx=8, pady=8)
@@ -2402,7 +2452,6 @@ class TimePlanApp(ctk.CTk):
         # For regular tasks, we don't need to check if they're recurring
         # Since regular tasks and recurring tasks are in separate tables
         # If you want to link them in the future, you could add a recurring_task_id reference in the tasks table
-
 # Application entry point
 if __name__ == "__main__":
     app = TimePlanApp()
