@@ -1,15 +1,13 @@
+import tkinter as tk
+from tkinter import messagebox
 import customtkinter as ctk
+from datetime import datetime, timedelta, date
 import os
 from PIL import Image
-from databaseManagement import DatabaseManager
-from datetime import datetime, timedelta
+import sqlite3
 import pytz
-from tkinter import messagebox  # <-- Add this import
-from tkinter import ttk  # <-- Add this import for ttk.Button
-
-# Import the calendar widget from tkcalendar
 from tkcalendar import Calendar
-
+from databaseManagement import DatabaseManager
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -30,13 +28,17 @@ class TimePlanApp(ctk.CTk):
         self.detail_pane_visible = False
         self.detail_pane_width = 340
         
-        self.db_manager = DatabaseManager()
+        # Initialize database
+        self.db = DatabaseManager()
+        # Alias db as db_manager for backwards compatibility
+        self.db_manager = self.db
+
         self.current_user_id = 1        # Pre-fetch category IDs
-        self.completed_category_id = self.db_manager.get_category_id_by_name("Completed")
-        self.on_going_category_id = self.db_manager.get_category_id_by_name("On-going") # For un-completing tasks
-        self.missed_category_id = self.db_manager.get_category_id_by_name("Missed") # For past due tasks
+        self.completed_category_id = self.db.get_category_id_by_name("Completed")
+        self.on_going_category_id = self.db.get_category_id_by_name("On-going") # For un-completing tasks
+        self.missed_category_id = self.db.get_category_id_by_name("Missed") # For past due tasks
           # Get all category names for task editing
-        self.all_categories = [cat[0] for cat in self.db_manager.get_task_categories()]
+        self.all_categories = [cat[0] for cat in self.db.get_task_categories()]
         
         if not self.completed_category_id:
             print("ERROR: 'Completed' category not found. Please ensure databaseManagement.py initializes it.")
@@ -217,7 +219,7 @@ class TimePlanApp(ctk.CTk):
 
     def update_past_due_tasks(self):
         """Update any past due tasks from On-going to Missed category."""
-        if self.db_manager.update_past_due_tasks():
+        if self.db.update_past_due_tasks():
             print("Successfully updated past due tasks.")
         else:
             print("Failed to update past due tasks.")
@@ -255,7 +257,7 @@ class TimePlanApp(ctk.CTk):
         self.task_scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
         # Fetch tasks from the database based on filter type
-        tasks = self.db_manager.get_tasks(user_id=self.current_user_id, filter_type=filter_type)
+        tasks = self.db.get_tasks(user_id=self.current_user_id, filter_type=filter_type)
         
         # Additional sorting based on due date (nearest first)
         if filter_type in ['All Tasks', 'On-going']:
@@ -360,33 +362,33 @@ class TimePlanApp(ctk.CTk):
                              text_color="#666666", anchor="ne", justify="right"
                              )
                 category_label.grid(row=0, column=2, padx=10, pady=(10,0), sticky="ne")
-                category_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+                category_label.bind("<Button-1>", lambda e, tid=task_id: self.show_task_detail(tid))
                 category_label.configure(cursor="hand2")
-                
-                # Due date label (add this for calendar view task cards)
-                if due_date:
-                    try:
-                        due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
-                        if due_date_obj == current_local_date:
-                            formatted_date_str = "Due: Today"
-                        elif due_date_obj == (current_local_date + timedelta(days=1)):
-                            formatted_date_str = "Due: Tomorrow"
-                        else:
-                            formatted_date_str = f"Due: {due_date_obj.strftime('%b %d, %Y')}"
-                    except ValueError:
-                        formatted_date_str = "Due: Invalid Date"
+            
+            # Due date label (add this for calendar view task cards)
+            if due_date:
+                try:
+                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                    if due_date_obj == current_local_date:
+                        formatted_date_str = "Due: Today"
+                    elif due_date_obj == (current_local_date + timedelta(days=1)):
+                        formatted_date_str = "Due: Tomorrow"
+                    else:
+                        formatted_date_str = f"Due: {due_date_obj.strftime('%b %d, %Y')}"
+                except ValueError:
+                    formatted_date_str = "Due: Invalid Date"
 
-                    due_date_label = ctk.CTkLabel(
-                        task_frame,
-                        text=formatted_date_str,
-                        font=ctk.CTkFont(size=12),
-                        text_color="#666666",
-                        anchor="ne",
-                        justify="right"
-                    )
-                    due_date_label.grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
-                    due_date_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
-                    due_date_label.configure(cursor="hand2")
+                due_date_label = ctk.CTkLabel(
+                    task_frame,
+                    text=formatted_date_str,
+                    font=ctk.CTkFont(size=12),
+                    text_color="#666666",
+                    anchor="ne",
+                    justify="right"
+                )
+                due_date_label.grid(row=1, column=2, padx=10, pady=(0,10), sticky="ne")
+                due_date_label.bind("<Button-1>", lambda e, tid=task_id: on_task_click(e, tid))
+                due_date_label.configure(cursor="hand2")
 
     def toggle_task_completion(self, task_id, status_var, current_category_name, current_filter_type):
         new_category_id = None
@@ -405,7 +407,7 @@ class TimePlanApp(ctk.CTk):
                 status_var.set("on") # Revert checkbox state
                 return
 
-        if self.db_manager.update_task_category(task_id, new_category_id):
+        if self.db.update_task_category(task_id, new_category_id):
             # Refresh the view based on current page
             if self.current_page == "calendar":
                 self.show_calendar_page()
@@ -430,7 +432,7 @@ class TimePlanApp(ctk.CTk):
         calendar_frame.pack(fill="x", padx=5, pady=5)
         
         # Get all tasks from database and organize by date
-        tasks = self.db_manager.get_tasks(user_id=self.current_user_id, filter_type='All Tasks')
+        tasks = self.db.get_tasks(user_id=self.current_user_id, filter_type='All Tasks')
         # Create a dictionary mapping due dates to tasks
         task_dates = {}
         
@@ -586,8 +588,8 @@ class TimePlanApp(ctk.CTk):
             text_color="#A85BC2"
         ).pack(anchor="nw", pady=(10, 0), padx=10)
 
-        form_frame = ctk.CTkFrame(self.content, fg_color="white", corner_radius=10, padx=20, pady=20)
-        form_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        form_frame = ctk.CTkFrame(self.content, fg_color="white", corner_radius=10)
+        form_frame.pack(fill="both", expand=True, padx=20, pady=20)
         form_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(form_frame, text="Title:", font=ctk.CTkFont(size=16, weight="bold"), anchor="w").grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
@@ -611,7 +613,7 @@ class TimePlanApp(ctk.CTk):
         
         # Get all categories and filter out 'Completed' for new task entry default
         # Assuming new tasks will start as "On-going" or "Missed"
-        self.category_names = [cat[0] for cat in self.db_manager.get_task_categories() if cat[0] not in ["Completed", "Missed"]]
+        self.category_names = [cat[0] for cat in self.db.get_task_categories() if cat[0] not in ["Completed", "Missed"]]
         self.task_category_optionmenu = ctk.CTkOptionMenu(form_frame, values=self.category_names)
         
         if "On-going" in self.category_names: # Set 'On-going' as default if available
@@ -621,8 +623,6 @@ class TimePlanApp(ctk.CTk):
         else: # No categories available
             self.task_category_optionmenu.set("No Categories")
             self.task_category_optionmenu.configure(state="disabled")
-
-        self.task_category_optionmenu.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
 
         ctk.CTkButton(form_frame, text="Add Task", command=self.submit_task,
                       font=ctk.CTkFont(size=16, weight="bold"),
@@ -688,6 +688,7 @@ class TimePlanApp(ctk.CTk):
                 self.show_tasks_page('All Tasks')
             
             # Show the details of the newly created task
+            self.selected_task = new_task_id
             self.show_task_detail(new_task_id)
         else:
             messagebox.showerror("Error", "Failed to add task. Check console for database errors.")
@@ -712,80 +713,45 @@ class TimePlanApp(ctk.CTk):
         """Select a task to view/edit details."""
         if self.selected_task == task_id:
             # If the selected task is clicked again, unselect it
-            self.selected_task = None
-            self.detail_pane_visible = False
+            self.hide_task_detail()
         else:
-            self.selected_task = task_id
-            self.detail_pane_visible = True
-        
-        self.update_task_detail_pane()
+            self.show_task_detail(task_id)
 
+    def hide_task_detail(self):
+        """Hide the task detail pane."""
+        if self.detail_pane_visible:
+            if hasattr(self, 'detail_pane'):
+                self.detail_pane.pack_forget()
+            self.detail_pane_visible = False
+            # Clear the selected task ID so we can select the same task again
+            self.selected_task = None
+    
     def update_task_detail_pane(self):
         """Update the task detail pane content."""
         if not self.detail_pane_visible or self.selected_task is None:
-            # Hide or clear the detail pane
-            if hasattr(self, 'task_detail_pane'):
-                self.task_detail_pane.pack_forget()
-                del self.task_detail_pane
+            # Hide the detail pane
+            self.hide_task_detail()
             return
         
-        task = self.db_manager.get_task_by_id(self.selected_task)
+        task = self.db.get_task_by_id(self.selected_task)
         if not task:
+            self.hide_task_detail()
             return # Task not found, do not proceed
         
-        task_id, title, description, priority, due_date, category_name = task
+        self.show_task_detail(self.selected_task)
 
-        # Create the detail pane if it doesn't exist
-        if not hasattr(self, 'task_detail_pane'):
-            self.task_detail_pane = ctk.CTkFrame(self.content, fg_color="#FFFFFF", corner_radius=10, padx=20, pady=20)
-            self.task_detail_pane.pack(side="right", fill="y", padx=(10, 0), pady=10)
-            
-            # Title
-            self.task_detail_title = ctk.CTkLabel(self.task_detail_pane, text="", font=ctk.CTkFont(size=18, weight="bold"),
-                                                  text_color="#333333", anchor="w", wraplength=300)
-            self.task_detail_title.pack(anchor="nw", pady=(0, 10))
-            
-            # Description
-            self.task_detail_description = ctk.CTkLabel(self.task_detail_pane, text="", font=ctk.CTkFont(size=14),
-                                                         text_color="#333333", anchor="w", wraplength=300)
-            self.task_detail_description.pack(anchor="nw", pady=(0, 10))
-            
-            # Priority
-            self.task_detail_priority = ctk.CTkLabel(self.task_detail_pane, text="", font=ctk.CTkFont(size=14),
-                                                      text_color="#333333", anchor="w")
-            self.task_detail_priority.pack(anchor="nw", pady=(0, 10))
-            
-            # Due Date
-            self.task_detail_due_date = ctk.CTkLabel(self.task_detail_pane, text="", font=ctk.CTkFont(size=14),
-                                                       text_color="#333333", anchor="w")
-            self.task_detail_due_date.pack(anchor="nw", pady=(0, 10))
-            
-            # Category
-            self.task_detail_category = ctk.CTkLabel(self.task_detail_pane, text="", font=ctk.CTkFont(size=14),
-                                                       text_color="#333333", anchor="w")
-            self.task_detail_category.pack(anchor="nw", pady=(0, 10))
-
-            # Edit button
-            self.edit_task_button = ctk.CTkButton(self.task_detail_pane, text="Edit Task", command=self.show_edit_task_page,
-                                                   font=ctk.CTkFont(size=16, weight="bold"),
-                                                   fg_color="#A85BC2", hover_color="#C576E0")
-            self.edit_task_button.pack(side="bottom", fill="x", pady=10)
-        
-        # Update the detail pane content
-        self.task_detail_title.configure(text=title)
-        self.task_detail_description.configure(text=description if description else "No description provided.")
-        self.task_detail_priority.configure(text=f"Priority: {priority}")
-        self.task_detail_due_date.configure(text=f"Due Date: {due_date}" if due_date else "Due Date: Not set")
-        self.task_detail_category.configure(text=f"Category: {category_name}")
-
-        self.task_detail_pane.pack(side="right", fill="y", padx=(10, 0), pady=10)
-
-    def show_edit_task_page(self):
+    def show_edit_task_page(self, task_id=None):
         """Open the edit task page for the selected task."""
-        if not self.selected_task:
+        # Use provided task_id or fall back to self.selected_task
+        target_task_id = task_id if task_id is not None else self.selected_task
+        
+        if not target_task_id:
             return # No task selected, do not proceed
         
-        task = self.db_manager.get_task_by_id(self.selected_task)
+        # Ensure self.selected_task is set for consistency
+        self.selected_task = target_task_id
+        
+        task = self.db_manager.get_task_by_id(target_task_id)
         if not task:
             return # Task not found, do not proceed
         
@@ -800,8 +766,8 @@ class TimePlanApp(ctk.CTk):
             text_color="#A85BC2"
         ).pack(anchor="nw", pady=(10, 0), padx=10)
 
-        form_frame = ctk.CTkFrame(self.content, fg_color="white", corner_radius=10, padx=20, pady=20)
-        form_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        form_frame = ctk.CTkFrame(self.content, fg_color="white", corner_radius=10)
+        form_frame.pack(fill="both", expand=True, padx=20, pady=20)
         form_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(form_frame, text="Title:", font=ctk.CTkFont(size=16, weight="bold"), anchor="w").grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
@@ -918,235 +884,260 @@ class TimePlanApp(ctk.CTk):
         if self.db_manager.update_task(task_id, title, description, priority, due_date, category_id):
             # Show success popup
             messagebox.showinfo("Success", "Task updated successfully!")
-              # Refresh the task list with the current filter
-            self.show_tasks_page(current_filter)
+            
+            # Determine which page to return to based on where the user came from
+            if hasattr(self, 'current_page') and self.current_page == "calendar":
+                # If user was on calendar page, return there
+                self.show_calendar_page()
+            else:
+                # Otherwise refresh the tasks page with the current filter
+                current_filter = self.get_current_filter()
+                self.show_tasks_page(current_filter)
+            
             # Show updated task details
+            self.selected_task = task_id
             self.show_task_detail(task_id)
         else:
             messagebox.showerror("Error", "Failed to update task. Check console for database errors.")
+
+    def show_edit_task_form(self, task_id):
+        # Clear detail pane first
+        for widget in self.detail_pane.winfo_children():
+            widget.destroy()
             
-    def show_task_detail(self, task_id):
-        # Note: task_id is already stored in self.selected_task by the click handler
-        
-        # Ensure the detail pane exists and is visible before fetching task data
-        # This gives the appearance of instant responsiveness
-        if not hasattr(self, 'detail_pane') or not self.detail_pane_visible:
-            # Create a fresh detail pane immediately
-            self.detail_pane = ctk.CTkFrame(self, width=self.detail_pane_width, fg_color="#F3E6F8", corner_radius=0)
-            self.detail_pane.pack(side="right", fill="y")
-            # Prevent the pane from resizing smaller than our defined width
-            self.detail_pane.pack_propagate(False)
-            self.detail_pane_visible = True
-            
-            # Create an immediate loading message while fetching data
-            loading_label = ctk.CTkLabel(
-                self.detail_pane,
-                text="Loading task details...",
-                font=ctk.CTkFont(size=16),
-                text_color="#A85BC2"
-            )
-            loading_label.pack(expand=True)
-            self.update_idletasks()  # Force immediate UI update
-            
-        # Now fetch the task details from the database
-        task = self.get_task_by_id(task_id)
+        task = self.db.get_task_by_id(task_id)
         if not task:
             print(f"Error: Could not find task with ID {task_id}")
-            # If task no longer exists, hide the detail pane
-            self.hide_task_detail()
             return
             
-        # Unpack task data
         task_id, title, description, priority, due_date, category_name = task
         
-        # Clear existing content
-        for widget in self.detail_pane.winfo_children():
-            widget.destroy()
-            
-        # Clear existing content in detail pane
-        for widget in self.detail_pane.winfo_children():
-            widget.destroy()
-            
-        # Create a close button at the top right
-        close_btn = ctk.CTkButton(
-            self.detail_pane,
-            text="✕",
-            width=30,
-            height=30,
-            fg_color="transparent",
-            text_color="#A85BC2",
-            hover_color="#E5C6F2",
-            corner_radius=5,
-            command=self.hide_task_detail
-        )
-        close_btn.pack(anchor="ne", padx=10, pady=10)
-
-        # Task title
+        # Detail heading
         ctk.CTkLabel(
             self.detail_pane,
-            text="Task Details",
+            text="Edit Task",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#A85BC2"
-        ).pack(anchor="nw", padx=20, pady=(0, 20))
+        ).pack(anchor="nw", padx=20, pady=(20, 20))
         
-        # Create detail fields
-        fields_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
-        fields_frame.pack(fill="x", padx=20, pady=0)
+        # Create edit form
+        form_frame = ctk.CTkScrollableFrame(self.detail_pane, fg_color="transparent")
+        form_frame.pack(fill="both", expand=True, padx=20, pady=0)
         
         # Title
         ctk.CTkLabel(
-            fields_frame, 
+            form_frame, 
             text="Title:", 
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
         
-        ctk.CTkLabel(
-            fields_frame,
-            text=title,
-            font=ctk.CTkFont(size=16),
-            wraplength=280,
-            text_color="#333333"
-        ).pack(anchor="w", pady=(0, 10), fill="x")
-        
-        # Due Date
-        ctk.CTkLabel(
-            fields_frame, 
-            text="Due Date:", 
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#6A057F"
-        ).pack(anchor="w", pady=(5, 0))
-        
-        due_date_text = f"{due_date}" if due_date else "Not set"
-        ctk.CTkLabel(
-            fields_frame,
-            text=due_date_text,
-            font=ctk.CTkFont(size=16),
-            text_color="#333333"
-        ).pack(anchor="w", pady=(0, 10))
+        title_entry = ctk.CTkEntry(form_frame, width=280)
+        title_entry.insert(0, title)
+        title_entry.pack(anchor="w", pady=(0, 10), fill="x")
         
         # Category
         ctk.CTkLabel(
-            fields_frame, 
+            form_frame, 
             text="Category:", 
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
         
+        # Filter out "Completed" and "Missed" categories for direct selection
+        editable_categories = [cat for cat in self.all_categories if cat not in ["Completed", "Missed"]]
+        if not editable_categories:
+            editable_categories = ["On-going"]  # Fallback
+            
+        category_menu = ctk.CTkOptionMenu(form_frame, values=editable_categories)
+        if category_name in editable_categories:
+            category_menu.set(category_name)
+        else:
+            # Default to first category if current one is not editable
+            category_menu.set(editable_categories[0])
+        category_menu.pack(anchor="w", pady=(0, 10), fill="x")
+        
+        # Due Date
         ctk.CTkLabel(
-            fields_frame,
-            text=category_name,
-            font=ctk.CTkFont(size=16),
-            text_color="#333333"
-        ).pack(anchor="w", pady=(0, 10))
+            form_frame, 
+            text="Due Date:", 
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+        
+        # Date entry and calendar in the same frame
+        due_date_var = ctk.StringVar(value=due_date if due_date else "")
+        
+        date_label_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
+        date_label_frame.pack(fill="x", pady=(0, 5))
+        
+        due_date_entry = ctk.CTkEntry(date_label_frame, width=280, textvariable=due_date_var)
+        due_date_entry.pack(fill="x", expand=True)
+        
+        # Calendar frame
+        calendar_frame = ctk.CTkFrame(form_frame, fg_color="#FFFFFF", corner_radius=5)
+        calendar_frame.pack(fill="x", pady=(0, 10), padx=5)
+        # Calendar widget directly embedded in the form
+        cal = Calendar(calendar_frame, selectmode='day', date_pattern='yyyy-mm-dd',
+                       background="#FFFFFF", 
+                       selectbackground="#A85BC2",
+                       headersbackground="#C576E0",
+                       headersforeground="white",
+                       normalbackground="#FFFFFF",
+                       showweeknumbers=False, showothermonthdays=True,
+                       font=("Arial", 10),
+                       showmonth=True,
+                       foreground="black")
+        
+        def on_date_selected(event=None):
+            selected_date = cal.get_date()
+            due_date_var.set(selected_date)
+        
+        cal.bind("<<CalendarSelected>>", on_date_selected)
+        
+        if due_date:
+            try:
+                cal.selection_set(due_date)
+            except:
+                pass
+        
+        cal.pack(padx=5, pady=5, fill="both", expand=True)
         
         # Priority
         ctk.CTkLabel(
-            fields_frame, 
+            form_frame, 
             text="Priority:", 
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
         
-        priority_text = f"⚠️ {priority}" if priority == "Urgent" else priority
-        ctk.CTkLabel(
-            fields_frame,
-            text=priority_text,
-            font=ctk.CTkFont(size=16),
-            text_color="#FF5252" if priority == "Urgent" else "#333333"
-        ).pack(anchor="w", pady=(0, 10))
+        priority_menu = ctk.CTkOptionMenu(form_frame, values=["Urgent", "Not urgent"])
+        priority_menu.set(priority if priority in ["Urgent", "Not urgent"] else "Not urgent")
+        priority_menu.pack(anchor="w", pady=(0, 10), fill="x")
         
         # Description
         ctk.CTkLabel(
-            fields_frame, 
+            form_frame, 
             text="Description:", 
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
         
-        description_text = description if description else "No description"
-        desc_label = ctk.CTkLabel(
-            fields_frame,
-            text=description_text,
-            font=ctk.CTkFont(size=16),
-            wraplength=280,
-            text_color="#333333",
-            justify="left"
-        )
-        desc_label.pack(anchor="w", pady=(0, 20), fill="x")
+        description_entry = ctk.CTkTextbox(form_frame, height=100, width=280)
+        if description:
+            description_entry.insert("1.0", description)
+        description_entry.pack(anchor="w", pady=(0, 20), fill="x")
         
-        # Add action buttons
+        # Button Frame
         btn_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=20)
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
         
-        edit_btn = ctk.CTkButton(
+        # Save button
+        save_btn = ctk.CTkButton(
             btn_frame,
-            text="Edit Task",
-            command=lambda: self.show_edit_task_form(task_id),
+            text="Save Changes",
+            command=lambda: self.save_task_edits(
+                task_id,
+                title_entry.get(),
+                description_entry.get("1.0", "end-1c"),
+                priority_menu.get(),
+                due_date_var.get(),
+                category_menu.get()
+            ),
             fg_color="#A85BC2",
             hover_color="#C576E0",
             font=ctk.CTkFont(size=14, weight="bold"),
             height=35
         )
-        edit_btn.pack(fill="x", pady=(0, 10))
+        save_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
-        delete_btn = ctk.CTkButton(
+        # Cancel button
+        cancel_btn = ctk.CTkButton(
             btn_frame,
-            text="Delete Task",
-            command=lambda: self.confirm_delete_task(task_id),
-            fg_color="#E57373",
-            hover_color="#EF5350",
+            text="Cancel",
+            command=lambda: self.show_task_detail(task_id),
+            fg_color="#9E9E9E",
+            hover_color="#757575",
             font=ctk.CTkFont(size=14, weight="bold"),
             height=35
         )
-        delete_btn.pack(fill="x")
-    
-    def hide_task_detail(self):
-        if self.detail_pane_visible:
-            self.detail_pane.pack_forget()
-            self.detail_pane_visible = False
-            # Clear the selected task ID so we can select the same task again
-            self.selected_task = None
-    
-    def get_task_by_id(self, task_id):
-        # Query the database for a specific task
-        query = """
-            SELECT t.task_id, t.task_title, t.description, p.priority_name, t.due_date, tc.category_name 
-            FROM tasks t 
-            JOIN task_category tc ON t.category_id = tc.category_id 
-            LEFT JOIN priority p ON t.priority_id = p.priority_id
-            WHERE t.task_id = ?
-        """
-        result = self.db_manager._fetch_one(query, (task_id,))
-        return result
+        cancel_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
-    def show_edit_task_form(self, task_id):
-        """Open the edit task form for the selected task."""
-        if not self.selected_task:
-            return # No task selected, do not proceed
+    def save_task_edits(self, task_id, title, description, priority, due_date, category_name):
+        if not title:
+            messagebox.showwarning("Warning", "Task title cannot be empty.")
+            return
+            
+        # Validate date format if provided
+        if due_date:
+            try:
+                due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                
+                # Check if the due date has passed
+                current_date = datetime.now().date()
+                if due_date_obj < current_date and category_name != "Completed":
+                    # If due date has passed and task is not completed, it should be marked as Missed
+                    category_name = "Missed"
+                    messagebox.showinfo("Notice", "Due date has passed. Task category set to 'Missed'.")
+                
+            except ValueError:
+                messagebox.showwarning(
+                    "Warning", 
+                    "Due date must be in YYYY-MM-DD format (e.g., 2025-06-30)."
+                )
+                return
         
-        task = self.db_manager.get_task_by_id(self.selected_task)
-        if not task:
-            return # Task not found, do not proceed
+        # Get category ID from name
+        category_id = self.db.get_category_id_by_name(category_name)
+        if not category_id:
+            messagebox.showwarning("Warning", f"Category '{category_name}' not found.")
+            return
+            
+        # Update task in database
+        success = self.db.update_task_details(
+            task_id,
+            task_title=title,
+            description=description if description else None,
+            priority=priority,
+            due_date=due_date if due_date else None,
+            category_id=category_id
+        )
         
-        task_id, title, description, priority, due_date, category_name = task
-
-        # Update the form fields with the selected task details
-        self.edit_task_title_entry.delete(0, ctk.END)
-        self.edit_task_title_entry.insert(0, title)
+        if success:
+            # Show success popup
+            messagebox.showinfo("Success", "Task updated successfully!")
+            
+            # Determine which page to return to based on where the user came from
+            if self.current_page == "calendar":
+                # If user was on calendar page, return there
+                self.show_calendar_page()
+            else:
+                # Otherwise, return to task list with the current filter
+                current_filter = self.get_current_filter()
+                self.show_tasks_page(current_filter)
+            
+            # Show updated task details
+            self.show_task_detail(task_id)
+        else:
+            messagebox.showerror("Error", "Failed to update task.")
         
-        self.edit_task_description_entry.delete(0, ctk.END)
-        self.edit_task_description_entry.insert(0, description if description else "")
+    def return_to_previous_view(self):
+        """Return to the previous view (tasks or calendar) after editing"""
+        if self._previous_view == "calendar":
+            self.show_calendar_view()
+        else:
+            self.show_tasks()
+            
+        # Refresh the current view
+        self.refresh_current_view()
         
-        self.edit_task_priority_optionmenu.set(priority)
-        
-        self.edit_task_due_date_entry.delete(0, ctk.END)
-        self.edit_task_due_date_entry.insert(0, due_date if due_date else "")
-        
-        self.edit_task_category_optionmenu.set(category_name)
-
-        # Focus on the title field
-        self.edit_task_title_entry.focus_set()
+    def refresh_current_view(self):
+        """Refresh the current view to show updated task data"""
+        if self._previous_view == "calendar":
+            self.update_calendar_events()
+        else:
+            current_filter = self.get_current_filter()
+            self.apply_filter(current_filter)
 
     def show_habit_page(self):
         """Show the habits/recurring tasks page."""
@@ -1410,8 +1401,8 @@ class TimePlanApp(ctk.CTk):
 
         # Title
         ctk.CTkLabel(
-            fields_frame,
-            text="Title:",
+            fields_frame, 
+            text="Title:", 
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color="#6A057F"
         ).pack(anchor="w", pady=(5, 0))
@@ -1742,52 +1733,40 @@ class TimePlanApp(ctk.CTk):
                 recurrence_pattern
             ):
                 messagebox.showinfo("Success", "Habit updated successfully!")
+
                 dialog.destroy()
                 self.show_habit_page()  # Refresh the page
             else:
                 messagebox.showerror("Error", "Failed to update habit")
-
-        # Save button
-        save_btn = ctk.CTkButton(
-            form_frame,
-            text="Save Changes",
-            command=save_habit,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#A85BC2",
-            hover_color="#C576E0"
-        )
-        save_btn.pack(fill="x", pady=(20, 10))
         
-        # Cancel button
-        cancel_btn = ctk.CTkButton(
-            form_frame,
-            text="Cancel",
-            command=dialog.destroy,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#9E9E9E",
-            hover_color="#757575"
-        )
-        cancel_btn.pack(fill="x")
-
-    def get_current_filter(self):
-        """Get the currently active filter from the navbar buttons."""
-        for btn in self.navbar_nav_items:
-            if btn.cget("fg_color") == "#A85BC2":  # Active button color
-                return btn.cget("text")
-        return "All Tasks"  # Default fallback
-
     def confirm_delete_task(self, task_id):
         """Show confirmation dialog before deleting a task."""
-        if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this task?"):
-            if self.db_manager.delete_task(task_id):
+        confirm = messagebox.askyesno(
+            title="Confirm Delete",
+            message="Are you sure you want to delete this task? This action cannot be undone."
+        )
+        
+        if confirm:
+            # Get the current filter before deleting
+            current_filter = self.get_current_filter()
+            
+            success = self.db.delete_task(task_id)
+            if success:
+                # Show success popup
                 messagebox.showinfo("Success", "Task deleted successfully!")
-                # Get current filter and refresh the view
-                current_filter = self.get_current_filter()
-                self.show_tasks_page(current_filter)
-                # Hide the detail pane since the task is deleted
+                
+                # First hide the detail pane since the task no longer exists
                 self.hide_task_detail()
+                
+                # Determine which page to return to based on where the user came from
+                if self.current_page == "calendar":
+                    # If user was on calendar page, return there
+                    self.show_calendar_page()
+                else:
+                    # Otherwise, refresh the task list with the current filter
+                    self.show_tasks_page(current_filter)
             else:
-                messagebox.showerror("Error", "Failed to delete task")
+                messagebox.showerror("Error", "Failed to delete task.")
 
     def confirm_delete_habit(self, rtask_id):
         """Show confirmation dialog before deleting a habit."""
@@ -1939,6 +1918,7 @@ class TimePlanApp(ctk.CTk):
                 def on_task_click(e, tid=task_id):
                     dialog.destroy()
                     self.show_tasks_page('All Tasks')
+                    self.selected_task = tid  # Set selected task before showing detail
                     self.show_task_detail(tid)
                 
                 result_frame.bind("<Button-1>", on_task_click)
@@ -2000,7 +1980,432 @@ class TimePlanApp(ctk.CTk):
         # Focus on search entry
         search_entry.focus_set()
 
-# Application entry point
+    def get_current_filter(self):
+        """Get the current filter type from the navbar buttons"""
+        for btn in self.navbar_nav_items:
+            if btn.cget("fg_color") == "#C576E0":  # Selected button color
+                return btn.cget("text")
+        return "All Tasks"  # Default filter
+
+    def show_task_details(self, task_id):
+        """Show the details of a task in the detail pane."""
+        self.selected_task = task_id
+        self.show_task_detail(task_id)
+
+    def show_task_detail(self, task_id):
+        """Show task details in the detail pane."""
+        # Note: task_id is already stored in self.selected_task by the click handler
+        
+        # Ensure the detail pane exists and is visible before fetching task data
+        # This gives the appearance of instant responsiveness
+        if not hasattr(self, 'detail_pane') or not self.detail_pane_visible:
+            # Create a fresh detail pane immediately
+            self.detail_pane = ctk.CTkFrame(self, width=self.detail_pane_width, fg_color="#F3E6F8", corner_radius=0)
+            self.detail_pane.pack(side="right", fill="y")
+            # Prevent the pane from resizing smaller than our defined width
+            self.detail_pane.pack_propagate(False)
+            self.detail_pane_visible = True
+            
+            # Create an immediate loading message while fetching data
+            loading_label = ctk.CTkLabel(
+                self.detail_pane,
+                text="Loading task details...",
+                font=ctk.CTkFont(size=16),
+                text_color="#A85BC2"
+            )
+            loading_label.pack(expand=True)
+            self.update_idletasks()  # Force immediate UI update
+            
+        # Now fetch the task details from the database
+        task = self.db.get_task_by_id(task_id)
+        if not task:
+            print(f"Error: Could not find task with ID {task_id}")
+            # If task no longer exists, hide the detail pane
+            self.hide_task_detail()
+            return
+            
+        # Unpack task data
+        task_id, title, description, priority, due_date, category_name = task
+        
+        # Clear existing content
+        for widget in self.detail_pane.winfo_children():
+            widget.destroy()
+            
+        # Create a close button at the top right
+        close_btn = ctk.CTkButton(
+            self.detail_pane,
+            text="✕",
+            width=30,
+            height=30,
+            fg_color="transparent",
+            text_color="#A85BC2",
+            hover_color="#E5C6F2",
+            corner_radius=5,
+            command=self.hide_task_detail
+        )
+        close_btn.pack(anchor="ne", padx=10, pady=10)
+
+        # Task title
+        ctk.CTkLabel(
+            self.detail_pane,
+            text="Task Details",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(anchor="nw", padx=20, pady=(0, 20))
+        
+        # Create detail fields
+        fields_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
+        fields_frame.pack(fill="x", padx=20, pady=0)
+        
+        # Title
+        ctk.CTkLabel(
+            fields_frame, 
+            text="Title:", 
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+        
+        ctk.CTkLabel(
+            fields_frame,
+            text=title,
+            font=ctk.CTkFont(size=16),
+            wraplength=280,
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10), fill="x")
+        
+        # Due Date
+        ctk.CTkLabel(
+            fields_frame, 
+            text="Due Date:", 
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+        
+        due_date_text = f"{due_date}" if due_date else "Not set"
+        ctk.CTkLabel(
+            fields_frame,
+            text=due_date_text,
+            font=ctk.CTkFont(size=16),
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10))
+        
+        # Category
+        ctk.CTkLabel(
+            fields_frame, 
+            text="Category:", 
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+        
+        ctk.CTkLabel(
+            fields_frame,
+            text=category_name,
+            font=ctk.CTkFont(size=16),
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10))
+        
+        # Priority
+        ctk.CTkLabel(
+            fields_frame, 
+            text="Priority:", 
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+        
+        priority_text = priority
+        ctk.CTkLabel(
+            fields_frame,
+            text=priority_text,
+            font=ctk.CTkFont(size=16),
+            text_color="#333333"
+        ).pack(anchor="w", pady=(0, 10))
+        
+        # Description
+        ctk.CTkLabel(
+            fields_frame, 
+            text="Description:", 
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#6A057F"
+        ).pack(anchor="w", pady=(5, 0))
+        
+        description_text = description if description else "No description"
+        desc_label = ctk.CTkLabel(
+            fields_frame,
+            text=description_text,
+            font=ctk.CTkFont(size=16),
+            wraplength=280,
+            text_color="#333333",
+            justify="left"
+        )
+        desc_label.pack(anchor="w", pady=(0, 20), fill="x")
+        
+        # Add action buttons
+        btn_frame = ctk.CTkFrame(self.detail_pane, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=20)
+        
+        edit_btn = ctk.CTkButton(
+            btn_frame,
+            text="Edit Task",
+            command=lambda: self.show_edit_task_form(task_id),
+            fg_color="#A85BC2",
+            hover_color="#C576E0",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=35
+        )
+        edit_btn.pack(fill="x", pady=(0, 10))
+        
+        delete_btn = ctk.CTkButton(
+            btn_frame,
+            text="Delete Task",
+            command=lambda: self.confirm_delete_task(task_id),
+            fg_color="#E57373",
+            hover_color="#EF5350",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=35
+        )
+        delete_btn.pack(fill="x")
+        
+    def confirm_delete_task(self, task_id):
+        """Show confirmation dialog before deleting a task."""
+        confirm = messagebox.askyesno(
+            title="Confirm Delete",
+            message="Are you sure you want to delete this task? This action cannot be undone."
+        )
+        
+        if confirm:
+            # Get the current filter before deleting
+            current_filter = self.get_current_filter()
+            
+            success = self.db.delete_task(task_id)
+            if success:
+                # Show success popup
+                messagebox.showinfo("Success", "Task deleted successfully!")
+                
+                # First hide the detail pane since the task no longer exists
+                self.hide_task_detail()
+                
+                # Determine which page to return to based on where the user came from
+                if self.current_page == "calendar":
+                    # If user was on calendar page, return there
+                    self.show_calendar_page()
+                else:
+                    # Otherwise, refresh the task list with the current filter
+                    self.show_tasks_page(current_filter)
+            else:
+                messagebox.showerror("Error", "Failed to delete task.")
+
+    def confirm_delete_habit(self, rtask_id):
+        """Show confirmation dialog before deleting a habit."""
+        if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this habit?"):
+            if self.db_manager.delete_recurring_task(rtask_id):
+                messagebox.showinfo("Success", "Habit deleted successfully!")
+                self.show_habit_page()  # Refresh the page
+            else:
+                messagebox.showerror("Error", "Failed to delete habit")
+        
+    def get_all_priorities(self):
+        """Get all priorities from the database."""
+        query = "SELECT priority_name FROM priority ORDER BY priority_level"
+        results = self.db_manager._fetch_all(query)
+        return [priority[0] for priority in results] if results else ["Not urgent", "Urgent"]  # Fallback defaults
+        
+    def get_priority_name_by_id(self, priority_id):
+        """Get priority name from id."""
+        query = "SELECT priority_name FROM priority WHERE priority_id = ?"
+        result = self.db_manager._fetch_one(query, (priority_id,))
+        return result[0] if result else "Not urgent"  # Default fallback
+
+    def update_filter_buttons(self, active_filter):
+        """Update the visual state of filter buttons in the navbar."""
+        for btn in self.navbar_nav_items:
+            if btn.cget("text") == active_filter:
+                btn.configure(
+                    fg_color="#A85BC2",
+                    text_color="white",
+                    hover_color="#C576E0"
+                )
+            else:
+                btn.configure(
+                    fg_color="transparent",
+                    text_color="#A85BC2",
+                    hover_color="#E5C6F2"
+                )
+
+    def show_search_dialog(self):
+        """Show search dialog to find tasks by title or description."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Search Tasks")
+        dialog.geometry("600x500")
+        dialog.resizable(False, False)
+        
+        # Make dialog modal
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Center dialog on main window
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        # Main container
+        main_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Title
+        ctk.CTkLabel(
+            main_frame,
+            text="Search Tasks",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#A85BC2"
+        ).pack(anchor="nw", pady=(0, 20))
+
+        # Search input frame
+        search_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        search_frame.pack(fill="x", pady=(0, 20))
+
+        ctk.CTkLabel(
+            search_frame,
+            text="Search by title or description:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w"
+        ).pack(fill="x", pady=(0, 5))
+
+        search_entry = ctk.CTkEntry(
+            search_frame,
+            placeholder_text="Enter search terms...",
+            font=ctk.CTkFont(size=14)
+        )
+        search_entry.pack(fill="x", pady=(0, 10))
+
+        # Search button
+        search_btn = ctk.CTkButton(
+            search_frame,
+            text="Search",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#A85BC2",
+            hover_color="#C576E0",
+            command=lambda: perform_search()
+        )
+        search_btn.pack(anchor="e")
+
+        # Results frame
+        results_frame = ctk.CTkFrame(main_frame, fg_color="white", corner_radius=10)
+        results_frame.pack(fill="both", expand=True, pady=(10, 0))
+
+        # Results scrollable area
+        results_scroll = ctk.CTkScrollableFrame(results_frame, fg_color="transparent")
+        results_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def perform_search():
+            search_term = search_entry.get().strip()
+            
+            # Clear previous results
+            for widget in results_scroll.winfo_children():
+                widget.destroy()
+            
+            if not search_term:
+                ctk.CTkLabel(
+                    results_scroll,
+                    text="Please enter a search term",
+                    font=ctk.CTkFont(size=14),
+                    text_color="#666666"
+                ).pack(pady=20)
+                return
+            
+            # Get search results from database
+            search_results = self.db_manager.search_tasks(self.current_user_id, search_term)
+            
+            if not search_results:
+                ctk.CTkLabel(
+                    results_scroll,
+                    text="No tasks found matching your search",
+                    font=ctk.CTkFont(size=14),
+                    text_color="#666666"
+                ).pack(pady=20)
+                return
+            
+            # Display results
+            ctk.CTkLabel(
+                results_scroll,
+                text=f"Found {len(search_results)} task(s):",
+                font=ctk.CTkFont(size=16, weight="bold"),
+                text_color="#A85BC2"
+            ).pack(anchor="w", pady=(0, 10))
+            
+            for task in search_results:
+                task_id, title, description, priority, due_date, category_name = task
+                
+                # Create result frame
+                result_frame = ctk.CTkFrame(results_scroll, fg_color="#F8F3FB", corner_radius=8)
+                result_frame.pack(fill="x", pady=5, padx=5)
+                
+                # Make clickable
+                def on_task_click(e, tid=task_id):
+                    dialog.destroy()
+                    self.show_tasks_page('All Tasks')
+                    self.selected_task = tid  # Set selected task before showing detail
+                    self.show_task_detail(tid)
+                
+                result_frame.bind("<Button-1>", on_task_click)
+                result_frame.configure(cursor="hand2")
+                
+                # Task content
+                content_frame = ctk.CTkFrame(result_frame, fg_color="transparent")
+                content_frame.pack(fill="x", padx=10, pady=10)
+                
+                # Title
+                ctk.CTkLabel(
+                    content_frame,
+                    text=title,
+                    font=ctk.CTkFont(size=16, weight="bold"),
+                    text_color="#333333",
+                    anchor="w"
+                ).pack(fill="x")
+                
+                # Description
+                if description:
+                    ctk.CTkLabel(
+                        content_frame,
+                        text=description,
+                        font=ctk.CTkFont(size=14),
+                        text_color="#666666",
+                        anchor="w",
+                        wraplength=500
+                    ).pack(fill="x", pady=(5, 0))
+                
+                # Task details
+                details_text = f"Category: {category_name}"
+                if due_date:
+                    details_text += f" | Due: {due_date}"
+                if priority:
+                    details_text += f" | Priority: {priority}"
+                
+                ctk.CTkLabel(
+                    content_frame,
+                    text=details_text,
+                    font=ctk.CTkFont(size=12),
+                    text_color="#999999",
+                    anchor="w"
+                ).pack(fill="x", pady=(5, 0))
+
+        # Bind Enter key to search
+        search_entry.bind("<Return>", lambda e: perform_search())
+        
+        # Close button
+        close_btn = ctk.CTkButton(
+            main_frame,
+            text="Close",
+            command=dialog.destroy,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color="#9E9E9E",
+            hover_color="#757575"
+        )
+        close_btn.pack(anchor="e", pady=(20, 0))
+        
+        # Focus on search entry
+        search_entry.focus_set()
+        
 if __name__ == "__main__":
     app = TimePlanApp()
     app.mainloop()

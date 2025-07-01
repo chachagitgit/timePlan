@@ -144,6 +144,9 @@ class DatabaseManager:
         for cat in default_categories:
             if cat not in existing_categories:
                 self.add_category(cat)
+        
+        # Update database schema for any missing columns
+        self.update_database_schema()
 
 
     # --- CRUD operations for Tasks ---
@@ -239,6 +242,25 @@ class DatabaseManager:
             query += "ORDER BY t.due_date DESC" # Most recently completed/missed first
         
         return self._fetch_all(query, params)
+
+    def get_task_by_id(self, task_id):
+        """Get a specific task by its ID.
+        
+        Args:
+            task_id: The ID of the task to retrieve
+            
+        Returns:
+            A tuple containing (task_id, title, description, priority, due_date, category_name)
+            or None if the task is not found.
+        """
+        query = """
+            SELECT t.task_id, t.task_title, t.description, p.priority_name, t.due_date, tc.category_name 
+            FROM tasks t 
+            JOIN task_category tc ON t.category_id = tc.category_id 
+            LEFT JOIN priority p ON t.priority_id = p.priority_id
+            WHERE t.task_id = ?
+        """
+        return self._fetch_one(query, (task_id,))
 
     def update_task_details(self, task_id, task_title=None, description=None, priority=None, due_date=None, category_id=None):
         updates = []
@@ -436,9 +458,8 @@ class DatabaseManager:
         """Remove completion date for a recurring task (set last_completed_date to NULL if it matches the date)."""
         query = """
             UPDATE recurring_tasks
-            SET last_completed_date = NULL,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE recurring_task_id = ? AND last_completed_date = ?
+            SET last_completed_date = NULL
+            WHERE rtask_id = ? AND last_completed_date = ?
         """
         return self._execute_query(query, (rtask_id, completed_date))
 
@@ -447,7 +468,7 @@ class DatabaseManager:
         query = """
             SELECT DISTINCT last_completed_date 
             FROM recurring_tasks 
-            WHERE recurring_task_id = ? AND last_completed_date IS NOT NULL
+            WHERE rtask_id = ? AND last_completed_date IS NOT NULL
             ORDER BY last_completed_date DESC
         """
         results = self._fetch_all(query, (rtask_id,))
@@ -457,18 +478,17 @@ class DatabaseManager:
         """Update an existing recurring task."""
         query = """
             UPDATE recurring_tasks
-            SET task_title = ?,
+            SET rtask_title = ?,
                 description = ?,
                 start_date = ?,
-                recurrence_pattern = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE recurring_task_id = ?
+                recurrence_pattern = ?
+            WHERE rtask_id = ?
         """
         return self._execute_query(query, (title, description, start_date, recurrence_pattern, rtask_id))
 
     def delete_recurring_task(self, rtask_id):
         """Delete a recurring task."""
-        query = "DELETE FROM recurring_tasks WHERE recurring_task_id = ?"
+        query = "DELETE FROM recurring_tasks WHERE rtask_id = ?"
         return self._execute_query(query, (rtask_id,))
 
     def search_tasks(self, user_id, search_term):
@@ -484,6 +504,40 @@ class DatabaseManager:
         """
         search_pattern = f"%{search_term}%"
         return self._fetch_all(query, (user_id, search_pattern, search_pattern))
+
+    def update_database_schema(self):
+        """Update database schema to add missing columns."""
+        # Check if updated_at column exists in tasks table
+        table_info = self._fetch_all("PRAGMA table_info(tasks)")
+        column_names = [column[1] for column in table_info]
+        
+        if 'updated_at' not in column_names:
+            print("Adding updated_at column to tasks table...")
+            # Add updated_at column
+            alter_query = """
+                ALTER TABLE tasks 
+                ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            """
+            if self._execute_query(alter_query):
+                print("Successfully added updated_at column to tasks table.")
+            else:
+                print("Failed to add updated_at column to tasks table.")
+        else:
+            print("updated_at column already exists in tasks table.")
+        
+        if 'created_at' not in column_names:
+            print("Adding created_at column to tasks table...")
+            # Add created_at column
+            alter_query = """
+                ALTER TABLE tasks 
+                ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            """
+            if self._execute_query(alter_query):
+                print("Successfully added created_at column to tasks table.")
+            else:
+                print("Failed to add created_at column to tasks table.")
+        else:
+            print("created_at column already exists in tasks table.")
 
 # For testing the DatabaseManager separately
 if __name__ == '__main__':
