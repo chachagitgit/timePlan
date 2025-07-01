@@ -1,3 +1,5 @@
+# for back-up, do not edit
+# all main functions are working
 import customtkinter as ctk
 import os
 from PIL import Image
@@ -1365,7 +1367,7 @@ class TimePlanApp(ctk.CTk):
         other_tasks = []
         
         for task in recurring_tasks:
-            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date = task
+            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date, status = task
             
             if recurrence_pattern.lower() == 'daily':
                 daily_tasks.append(task)
@@ -1435,18 +1437,11 @@ class TimePlanApp(ctk.CTk):
         current_local_date = datetime.now(philippines_timezone).date()
         
         for task in tasks:
-            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date = task
+            rtask_id, rtask_title, description, start_date, recurrence_pattern, last_completed_date, status = task
             
-            # Determine completion status and colors
-            is_completed_today = False
-            if last_completed_date:
-                try:
-                    last_completed_date_obj = datetime.strptime(last_completed_date, '%Y-%m-%d').date()
-                    is_completed_today = last_completed_date_obj == current_local_date
-                except ValueError:
-                    pass
-            
-            bg_color = "#C8E6C9" if is_completed_today else "white"  # Light green if completed today
+            # Determine colors based on status
+            is_completed = (status == 'Completed')
+            bg_color = "#C8E6C9" if is_completed else "white"  # Light green if completed
             
             # Create task card
             task_frame = ctk.CTkFrame(section_frame, fg_color=bg_color, corner_radius=8,
@@ -1461,7 +1456,7 @@ class TimePlanApp(ctk.CTk):
             task_frame.grid_rowconfigure(1, weight=0)
             
             # Create checkbox for completing the habit
-            status_var = ctk.StringVar(value="on" if is_completed_today else "off")
+            status_var = ctk.StringVar(value="on" if is_completed else "off")
             status_checkbox = ctk.CTkCheckBox(
                 task_frame, 
                 text="", 
@@ -1932,14 +1927,11 @@ class TimePlanApp(ctk.CTk):
         current_local_date = datetime.now(philippines_timezone).date().strftime('%Y-%m-%d')
         
         if status_var.get() == "on":
-            # Mark as completed today
+            # Mark as completed today and set status to 'Completed'
             self.db_manager.update_recurring_task_completion(rtask_id, current_local_date)
         else:
-            # Mark as not completed (remove completion date)
-            self.db_manager._execute_query(
-                "UPDATE recurring_tasks SET last_completed_date = NULL WHERE rtask_id = ?", 
-                (rtask_id,)
-            )
+            # Mark as not completed (remove completion date) and set status to 'Pending'
+            self.db_manager.remove_recurring_task_completion(rtask_id, current_local_date)
         
         # Refresh the habit page to show updated status
         self.show_habit_page()
@@ -2209,7 +2201,7 @@ class TimePlanApp(ctk.CTk):
             
             # Search for recurring tasks in database
             recurring_query = """
-                SELECT rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date
+                SELECT rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date, status
                 FROM recurring_tasks
                 WHERE LOWER(rtask_title) LIKE ? AND user_id = ?
                 ORDER BY recurrence_pattern
@@ -2239,9 +2231,9 @@ class TimePlanApp(ctk.CTk):
                 task_type[display_text] = "regular"
             
             # Add recurring tasks
-            for rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date in recurring_results:
+            for rtask_id, rtask_title, start_date, recurrence_pattern, last_completed_date, status in recurring_results:
                 recurring_prefix = "🔄 "  # Add a recurring icon
-                display_text = f"{recurring_prefix}{rtask_title} (Recurring - {recurrence_pattern.capitalize()})"
+                display_text = f"{recurring_prefix}{rtask_title} (Recurring - {recurrence_pattern.capitalize()} - {status})"
                 display_results.append(display_text)
                 task_map[display_text] = rtask_id
                 task_type[display_text] = "recurring"
@@ -2298,7 +2290,7 @@ class TimePlanApp(ctk.CTk):
         task_id = task['id']  # Keep as 'id' since this is used for calendar view dictionary
         category_name = task['category']
         due_date = task.get('due_date', None)
-        title = task['title']  # Keep as 'title' since this is used for calendar view dictionary
+        title = task['title']  # Keep as 'title' since this is used for calendar view dictionarytle']  # Keep as 'title' since this is used for calendar view dictionary
         description = task.get('description', '')
         priority = task.get('priority', '')
 
