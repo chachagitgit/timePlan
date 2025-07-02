@@ -71,7 +71,7 @@ class DatabaseManager:
         # Create users table
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS users (
-                user_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id          INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE NOT NULL,
                 username    TEXT    UNIQUE NOT NULL,
                 password    TEXT    NOT NULL
             );
@@ -80,7 +80,7 @@ class DatabaseManager:
         # Create task_category table
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS task_category (
-                category_id   INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                category_id   INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,
                 category_name TEXT    NOT NULL UNIQUE
             );
         """)
@@ -88,7 +88,7 @@ class DatabaseManager:
         # Create priority table
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS priority (
-                priority_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                priority_id   INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE NOT NULL,
                 priority_name TEXT    NOT NULL UNIQUE,
                 priority_level INTEGER NOT NULL
             );
@@ -108,12 +108,12 @@ class DatabaseManager:
         # Create tasks table (STATUS COLUMN REMOVED IN PREVIOUS STEP, REMAINS GONE)
         self._execute_query("""
             CREATE TABLE IF NOT EXISTS tasks (
-                task_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id     INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE NOT NULL,
                 task_title       TEXT    NOT NULL,
                 description TEXT,
-                priority_id INTEGER REFERENCES priority (priority_id),
+                priority_id INTEGER REFERENCES priority (priority_id) NOT NULL,
                 due_date    DATE,
-                user_id     INTEGER NOT NULL DEFAULT 1,
+                user_id     INTEGER NOT NULL DEFAULT 1 REFERENCES users (user_id),
                 category_id INTEGER REFERENCES task_category (category_id) NOT NULL,
                 created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
